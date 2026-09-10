@@ -242,7 +242,7 @@
                   (disc ? "" : " undisc") + (state.here === l.id ? " here" : "");
         html += '<div class="' + cls + '" data-id="' + l.id + '">' +
                   '<div class="ic">' + (KIND_ICON[l.kind] || "■") + "</div>" +
-                  '<div class="nm">' + (disc ? l.name : "UNSURVEYED") + "</div>" +
+                  '<div class="nm">' + (disc ? l.name : "UNDISCOVERED") + "</div>" +
                   '<div class="di">' + (state.here === l.id ? "HERE" : Math.round(d) + " mi") + "</div>" +
                   riskBars(l.danger) +
                 "</div>";
@@ -288,24 +288,26 @@
     var arriveDay = Math.floor(arrive / 1440);
     var ah = Math.floor((arrive % 1440) / 60), am = Math.floor(arrive % 60);
 
+    // A course already running must not be re-plotted from under itself.
+    var enRoute = !!st.travel;
     var chips = "";
     (loc.services || []).forEach(function (s) { chips += '<div class="chip">' + s + "</div>"; });
     if (loc.rads) chips += '<div class="chip warn">RADIATION</div>';
     if (loc.danger >= 4) chips += '<div class="chip warn">HOSTILE ZONE</div>';
-    if (!disc) chips += '<div class="chip warn">UNSURVEYED</div>';
+    if (!disc) chips += '<div class="chip warn">UNDISCOVERED</div>';
 
     box.innerHTML =
       '<div class="dhero">' +
         '<div class="dname">' + (disc ? loc.name : "UNKNOWN SITE") + "</div>" +
         '<div class="dreg">' + (reg ? reg.name : "") + " &middot; SECTOR " + sector(loc) + "</div>" +
-        '<div class="ddesc">' + (disc ? loc.desc : "No survey data. Route plotted from map traces only.") + "</div>" +
+        '<div class="ddesc">' + (disc ? loc.desc : "No survey data on file. Route plotted from map traces only.") + "</div>" +
       "</div>" +
       '<div class="chips">' + chips + "</div>" +
       '<div class="stats">' +
         '<div class="stat"><div class="k">DISTANCE</div><div class="v">' + Math.round(est.miles) + '<span class="u">MI</span></div></div>' +
         '<div class="stat"><div class="k">TRAVEL TIME</div><div class="v">' + TR.duration(est.minutes) + "</div></div>" +
         '<div class="stat"><div class="k">CELL DRAW</div><div class="v ' + (fuelOk ? "" : "warn") + '">' + est.fuel.toFixed(1) + '<span class="u">%</span></div></div>' +
-        '<div class="stat"><div class="k">ARRIVAL</div><div class="v">' + pad(ah) + pad(am) + (arriveDay ? '<span class="u">+' + arriveDay + "D</span>" : "") + "</div></div>" +
+        '<div class="stat"><div class="k">ARRIVAL</div><div class="v">' + pad(ah) + ":" + pad(am) + (arriveDay ? '<span class="u">+' + arriveDay + "D</span>" : "") + "</div></div>" +
       "</div>" +
       '<div class="rowline"><span>ROUTE LEGS</span><b>' + est.legs + " SEGMENT" + (est.legs === 1 ? "" : "S") + "</b></div>" +
       '<div class="rowline"><span>THREAT RATING</span>' + riskBars(est.risk) + "</div>" +
@@ -314,7 +316,8 @@
         '<div class="fbars" id="fbars"></div>' +
       "</div>" +
       '<div class="actions">' +
-        '<button class="act primary" id="actGo"' + (fuelOk ? "" : " disabled") + '><span class="k">[ENTER]</span> Auto-Travel</button>' +
+        '<button class="act primary" id="actGo"' + ((fuelOk && !enRoute) ? "" : " disabled") + '><span class="k">[ENTER]</span> ' +
+          (enRoute ? "En Route&hellip;" : "Auto-Travel") + "</button>" +
         '<button class="act" id="actPin"><span class="k">[P]</span> Pin &amp; Drive Manually</button>' +
         '<button class="act ghost" id="actClear"><span class="k">[ESC]</span> Clear Plot</button>' +
       "</div>";
@@ -336,7 +339,7 @@
     if (!fuelOk) HUD.toast("INSUFFICIENT CELL CHARGE FOR THIS ROUTE", "warn");
 
     var go = $("actGo"), pin = $("actPin"), cl = $("actClear");
-    if (go) go.onclick = function () { app.beginTravel(); };
+    if (go && !enRoute) go.onclick = function () { app.beginTravel(); };
     if (pin) pin.onclick = function () { app.pinAndDrive(); };
     if (cl) cl.onclick = function () { app.clearSelection(); };
   };
@@ -371,23 +374,47 @@
     // World units/sec -> a readable "mph" for the dashboard.
     $("mph").textContent = Math.round(Math.abs(v.speed) * W.SCALE.milesPerUnit * 1.35);
     $("odo").textContent = "ODO " + Math.round(v.odometer * W.SCALE.milesPerUnit) + " MI";
+    var bg = $("boostgauge");
+    $("boostfill").style.transform = "scaleX(" + (Math.max(0, v.boost) / 100).toFixed(3) + ")";
+    $("boostpct").textContent = Math.round(v.boost) + "%";
+    var bc = v.boosting ? "gauge live" : v.boost < 15 ? "gauge dry" : "gauge";
+    if (bg.className !== bc) bg.className = bc;
     $("vsub").textContent = v.fuel <= 0 ? "CELL DEPLETED · ENGINE DEAD"
                           : v.condition < 40 ? "CHASSIS DAMAGED · REDUCED SPEED"
                           : "CHRYSLUS CORVEGA · MFC DRIVE";
   };
 
   HUD.clock = function () {
-    $("stamp").textContent = TR.Clock.stamp();
+    $("ctime").textContent = TR.Clock.time();
+    $("cdate").textContent = TR.Clock.date();
     var night = TR.Clock.isNight();
     $("daynight").textContent = (night ? "NIGHT" : "DAY") + " · " +
       (night ? "ENCOUNTER RISK +35%" : "CLEAR VISIBILITY");
   };
 
   HUD.mode = function (mode) {
-    var chip = $("modechip");
-    chip.className = "modechip " + mode;
-    $("modetext").textContent =
-      mode === "drive" ? "MANUAL DRIVE" : mode === "travel" ? "AUTO-TRAVEL" : "SURVEY";
+    $("modeswitch").className = mode;
+    var sb = $("speedbox");
+    var hide = mode === "drive";
+    if (sb && (sb.className === "hidden") !== hide) sb.className = hide ? "hidden" : "";
+  };
+
+  /**
+   * What the marker shapes mean. The icons carry real information - a vault is
+   * not a ruin - and nothing on screen said so.
+   */
+  HUD.buildKey = function () {
+    var LABEL = {
+      town: "Settlement", vault: "Vault", base: "Military",
+      ruin: "Ruin", cave: "Cave", poi: "Site"
+    };
+    var html = "";
+    for (var k in KIND_ICON) {
+      html += '<span><i>' + KIND_ICON[k] + "</i>" + LABEL[k] + "</span>";
+    }
+    html += '<span class="dim"><i class="sw dash"></i>Undiscovered</span>';
+    html += '<span class="dim"><i class="sw hot"></i>Contact</span>';
+    $("keygrid").innerHTML = html;
   };
 
   HUD.focus = function (on) {

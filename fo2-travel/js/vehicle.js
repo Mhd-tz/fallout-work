@@ -26,19 +26,20 @@
     if (opt) for (var k in opt) f[k] = opt[k];
     this.faces.push(f);
   };
-  /** Axis-aligned box; `skip` hides faces: t b n s e w */
-  Builder.prototype.box = function (x0, x1, y0, y1, z0, z1, col, skip) {
+  /** Axis-aligned box; `skip` hides faces: t b n s e w. `opt` carries face options like glow */
+  Builder.prototype.box = function (x0, x1, y0, y1, z0, z1, col, skip, opt) {
+    if (typeof skip === "object" && !opt) { opt = skip; skip = ""; }
     skip = skip || "";
     var p = [
       this.v(x0, y0, z0), this.v(x1, y0, z0), this.v(x1, y1, z0), this.v(x0, y1, z0),
       this.v(x0, y0, z1), this.v(x1, y0, z1), this.v(x1, y1, z1), this.v(x0, y1, z1)
     ];
-    if (skip.indexOf("n") < 0) this.quad(p[0], p[1], p[2], p[3], col);
-    if (skip.indexOf("s") < 0) this.quad(p[5], p[4], p[7], p[6], col);
-    if (skip.indexOf("w") < 0) this.quad(p[4], p[0], p[3], p[7], col);
-    if (skip.indexOf("e") < 0) this.quad(p[1], p[5], p[6], p[2], col);
-    if (skip.indexOf("t") < 0) this.quad(p[3], p[2], p[6], p[7], col);
-    if (skip.indexOf("b") < 0) this.quad(p[4], p[5], p[1], p[0], col);
+    if (skip.indexOf("n") < 0) this.quad(p[0], p[1], p[2], p[3], col, opt);
+    if (skip.indexOf("s") < 0) this.quad(p[5], p[4], p[7], p[6], col, opt);
+    if (skip.indexOf("w") < 0) this.quad(p[4], p[0], p[3], p[7], col, opt);
+    if (skip.indexOf("e") < 0) this.quad(p[1], p[5], p[6], p[2], col, opt);
+    if (skip.indexOf("t") < 0) this.quad(p[3], p[2], p[6], p[7], col, opt);
+    if (skip.indexOf("b") < 0) this.quad(p[4], p[5], p[1], p[0], col, opt);
     return p;
   };
   /** Wheel: a low-poly cylinder lying on the X axis. */
@@ -99,6 +100,16 @@
     // Trunk deck
     b.box(-hw * 0.92, hw * 0.92, 0.84, 0.90, 1.30, 1.98, PAINT, "b");
 
+    // Iconic 1950s Atomic Highwayman Tailfins
+    var finL0 = b.v(-hw * 0.96, 0.86, 0.75), finL1 = b.v(-hw * 0.96, 1.16, 2.08), finL2 = b.v(-hw * 0.92, 0.84, 2.08);
+    b.tri(finL0, finL1, finL2, PAINT, { stroke: CHROME, lw: 1 });
+    var finR0 = b.v(hw * 0.96, 0.86, 0.75), finR1 = b.v(hw * 0.96, 1.16, 2.08), finR2 = b.v(hw * 0.92, 0.84, 2.08);
+    b.tri(finR0, finR2, finR1, PAINT, { stroke: CHROME, lw: 1 });
+
+    // Atomic Micro-Fusion reactor cooling manifold on the rear deck
+    b.box(-0.36, 0.36, 0.90, 1.05, 1.22, 1.68, "#282c32");
+    b.box(-0.26, 0.26, 1.02, 1.12, 1.28, 1.62, "#38bdf8", { glow: true });
+
     // Chrome: grille, bumpers, side spear
     b.box(-hw * 0.8, hw * 0.8, 0.54, 0.74, -2.12, -2.02, CHROME);
     b.box(-hw, hw, 0.34, 0.48, -2.16, -2.06, CHROME);
@@ -107,10 +118,10 @@
     b.box(hw - 0.02, hw + 0.02, 0.62, 0.70, -1.4, 1.5, CHROME);
 
     // Lights
-    b.box(-hw * 0.78, -hw * 0.44, 0.60, 0.76, -2.14, -2.08, "#ffe9b0", "");
-    b.box(hw * 0.44, hw * 0.78, 0.60, 0.76, -2.14, -2.08, "#ffe9b0", "");
-    b.box(-hw * 0.8, -hw * 0.4, 0.58, 0.72, 2.02, 2.08, "#ff5a3c", "");
-    b.box(hw * 0.4, hw * 0.8, 0.58, 0.72, 2.02, 2.08, "#ff5a3c", "");
+    b.box(-hw * 0.78, -hw * 0.44, 0.60, 0.76, -2.14, -2.08, "#ffe9b0", { glow: true });
+    b.box(hw * 0.44, hw * 0.78, 0.60, 0.76, -2.14, -2.08, "#ffe9b0", { glow: true });
+    b.box(-hw * 0.8, -hw * 0.4, 0.58, 0.72, 2.02, 2.08, "#ff3b30", { glow: true });
+    b.box(hw * 0.4, hw * 0.8, 0.58, 0.72, 2.02, 2.08, "#ff3b30", { glow: true });
 
     // Roof rack + lashed cargo - it is a wasteland car, it carries junk
     b.box(-hw * 0.66, hw * 0.66, 1.34, 1.40, 0.18, 0.86, "#3a3a3c");
@@ -129,13 +140,19 @@
   }
 
   /* --- driving model ------------------------------------------------------ */
-  var TOP_ROAD = 52;      // world units / second at full throttle on highway
+  // 45 u/s reads 85 mph on the dashboard. Cruise sits below that so the
+  // boost has somewhere to go: hold it and the Highwayman runs up to its
+  // rated 85, which is also the hard ceiling.
+  var TOP_ROAD = 37.5;    // 71 mph cruising on tarmac
+  var TOP_BOOST = 45;     // 85 mph, and no faster
   var TOP_OFF = 24;
   var TOP_REVERSE = 15;
   var ACCEL = 30;
   var BRAKE = 62;
   var DRAG = 0.55;
-  var GRAVITY = 26;       // how hard grades pull on the car
+  var GRAVITY = 7;        // grades pull, but never harder than the engine pulls back
+  var BOOST_BURN = 16;    // reservoir percent per second while held (~6s of overcharge)
+  var BOOST_FILL = 9;     // percent per second once it has had a moment to settle
   var HALF_LEN = 6.2;     // wheelbase / 2 in world units
   var HALF_WID = 3.0;
 
@@ -158,6 +175,10 @@
     this.scale = 3.4;
     this.dust = [];
     this.lightsOn = false;
+    this.boost = 100;       // percent of the overcharge reservoir
+    this.boosting = false;
+    this.trail = [];
+    this.boostCool = 0;     // seconds before the reservoir starts refilling
   }
 
   /**
@@ -173,8 +194,11 @@
     var hR = T.surfaceAt(this.x + sx * HALF_WID, this.z + sz * HALF_WID);
     var hL = T.surfaceAt(this.x - sx * HALF_WID, this.z - sz * HALF_WID);
 
-    // Ride on the highest axle so no corner ever buries itself.
-    this.groundY = Math.max((hF + hB) * 0.5, (hL + hR) * 0.5);
+    // Ride on the highest axle so no corner ever buries itself - and never
+    // below the ground directly under the centre, or the body noses into the
+    // crest when the car is straddling a ridge.
+    this.groundY = Math.max((hF + hB) * 0.5, (hL + hR) * 0.5,
+                            T.surfaceAt(this.x, this.z));
     this.grade = (hF - hB) / (HALF_LEN * 2);
     var tPitch = Math.atan2(hF - hB, HALF_LEN * 2);
     var tRoll = Math.atan2(hR - hL, HALF_WID * 2);
@@ -197,11 +221,30 @@
 
     var terr = T.speedAt(this.x, this.z);
     var road = T.onRoad(this.x, this.z);
-    var top = TOP_OFF + (TOP_ROAD - TOP_OFF) * road;
-    top *= 0.55 + 0.45 * (this.condition / 100);
-    if (this.fuel <= 0) top = 0;
 
     var th = inp.throttle || 0;
+
+    // Overcharge: it only engages under power, with charge left in the
+    // reservoir and a live cell. Previously "boost" just scaled the throttle,
+    // which did nothing at all once the car was already at its top speed -
+    // that is why holding SHIFT often felt like it was not connected.
+    this.boosting = !!inp.boost && th > 0 && this.boost > 0.5 &&
+                    this.fuel > 0 && this.gear !== -1;
+    if (this.boosting) {
+      this.boost = Math.max(0, this.boost - BOOST_BURN * dt);
+      this.boostCool = 1.1;
+    } else {
+      this.boostCool = Math.max(0, this.boostCool - dt);
+      if (this.boostCool <= 0) {
+        this.boost = Math.min(100, this.boost + BOOST_FILL * dt);
+      }
+    }
+
+    var topRoad = this.boosting ? TOP_BOOST : TOP_ROAD;
+    var top = TOP_OFF + (topRoad - TOP_OFF) * road;
+    top *= 0.55 + 0.45 * (this.condition / 100);
+    if (this.boosting) top *= 1.12;              // and it bites off-road too
+    if (this.fuel <= 0) top = 0;
 
     // Gear selection: S brakes while rolling forward, and engages reverse
     // once the car has actually stopped.
@@ -212,10 +255,12 @@
 
     if (this.gear === 1) {
       if (th > 0) {
-        // Climbing costs power; the steeper it gets the less is left.
+        // Climbing costs power, but never so much that a hill becomes a wall -
+        // locations sit on high ground and have to stay reachable.
         var climb = Math.max(0, this.grade);
-        var pull = 1 - Math.min(0.82, climb * 1.5);
-        this.speed += ACCEL * th * dt * (0.45 + 0.55 * terr) * pull;
+        var pull = 1 - Math.min(0.35, climb * 0.45);
+        var kick = this.boosting ? 1.9 : 1;
+        this.speed += ACCEL * th * dt * (0.45 + 0.55 * terr) * pull * kick;
       } else if (th < 0) {
         this.speed -= BRAKE * Math.abs(th) * dt;
       }
@@ -233,6 +278,9 @@
     // Gravity along the grade: the hill pulls whichever way it faces.
     this.speed -= this.grade * GRAVITY * dt;
 
+    // Absolute ceiling: a downhill run must not push the dashboard past the
+    // Highwayman's rated 85 mph.
+    if (this.speed > TOP_BOOST) this.speed = TOP_BOOST;
     if (inp.handbrake) this.speed *= Math.pow(0.06, dt);
     this.speed -= this.speed * DRAG * dt * (1.4 - road * 0.6);
     if (Math.abs(this.speed) < 0.05 && !th) this.speed = 0;
@@ -262,7 +310,7 @@
     // which is what stopped reverse from ever engaging.
     if (d > 0.05) {
       var climb = (T.surfaceAt(nx, nz) - T.surfaceAt(this.x, this.z)) / d;
-      if (climb > 1.15) {
+      if (climb > 1.9) {
         this.blocked = true;
         this.speed *= -0.25;
         return 0;
@@ -276,6 +324,9 @@
       this.condition = Math.max(0, this.condition - d * 0.004 * (1 - road));
     }
     this.emitDust(d, road);
+    if (this.boosting) this.emitTrail(d);
+    // Overcharge drinks the cell noticeably faster than cruising does.
+    if (this.boosting) this.fuel = Math.max(0, this.fuel - d * 0.014);
     return d;
   };
 
@@ -296,6 +347,26 @@
     if (this.dust.length > 60) this.dust.splice(0, this.dust.length - 60);
   };
 
+  /**
+   * Twin plasma streaks off the MFC drive. Emitted in world space, like the
+   * dust, so they stay behind the car instead of being painted at a fixed
+   * screen offset.
+   */
+  Vehicle.prototype.emitTrail = function (dist) {
+    var f = this.forward();
+    var rx = -f[1], rz = f[0];
+    for (var s2 = -1; s2 <= 1; s2 += 2) {
+      this.trail.push({
+        x: this.x - f[0] * 6.2 + rx * s2 * 2.2,
+        z: this.z - f[1] * 6.2 + rz * s2 * 2.2,
+        y: 1.9 + Math.random() * 0.5,
+        r: 2.4 + Math.random() * 1.4,
+        life: 1
+      });
+    }
+    if (this.trail.length > 120) this.trail.splice(0, this.trail.length - 120);
+  };
+
   /** Age the plume. Called every frame, moving or not. */
   Vehicle.prototype.stepDust = function (dt) {
     var k = Math.min(3, dt * 60);
@@ -305,6 +376,13 @@
       p.r += 0.3 * k;
       p.y += 0.11 * k;
       if (p.life <= 0) this.dust.splice(i, 1);
+    }
+    for (var j = this.trail.length - 1; j >= 0; j--) {
+      var q = this.trail[j];
+      q.life -= 0.055 * k;
+      q.r += 0.22 * k;
+      q.y += 0.05 * k;
+      if (q.life <= 0) this.trail.splice(j, 1);
     }
   };
 

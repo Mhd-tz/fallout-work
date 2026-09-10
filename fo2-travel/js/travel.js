@@ -352,12 +352,15 @@
       return this;
     },
     hour: function () { return this.minute / 60; },
-    isNight: function () { var h = this.hour(); return h < 6 || h >= 20; },
-    /** "25 JUL 2241 0813" - the Fallout 2 world map readout. */
+    // Matches the solar model in main.js: the sun is below the horizon
+    // outside 06:00-18:00, with a little grace so lights come on at dusk.
+    isNight: function () { var h = this.hour(); return h < 6.2 || h >= 18.3; },
+    /**
+     * "25 JUL 2241 - 16:10". The old form ran the date straight into a bare
+     * four-digit 24h time, which read as part of the year.
+     */
     stamp: function () {
-      var h = Math.floor(this.minute / 60), m = Math.floor(this.minute % 60);
-      return pad(this.day, 2) + " " + MONTHS[this.month] + " " + this.year + " " +
-             pad(h, 2) + pad(m, 2);
+      return this.date() + "  \u00b7  " + this.time();
     },
     time: function () {
       var h = Math.floor(this.minute / 60), m = Math.floor(this.minute % 60);

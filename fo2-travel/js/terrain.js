@@ -69,13 +69,39 @@
   function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
   /* --- coastline: the Pacific down the south-west, bay at San Francisco --- */
+  /**
+   * The Pacific shoreline, traced off the Fallout 2 world map: it runs almost
+   * straight down the western edge through the northern half, then swings
+   * south-east below Navarro. Control points are world coordinates; anything
+   * west of the returned x is ocean.
+   */
+  var COAST = [
+    [38, 0], [32, 200], [36, 380], [60, 500], [95, 600],
+    [170, 700], [250, 800], [300, 880], [360, 960], [400, 1000]
+  ];
+
   function coastX(z) {
-    return (z - 395) * 0.78 + (fbm(z * 0.011, 7.3, 3, 2, 0.5) - 0.5) * 90;
+    var x;
+    if (z <= COAST[0][1]) x = COAST[0][0];
+    else if (z >= COAST[COAST.length - 1][1]) x = COAST[COAST.length - 1][0];
+    else {
+      x = COAST[COAST.length - 1][0];
+      for (var i = 1; i < COAST.length; i++) {
+        if (z <= COAST[i][1]) {
+          var a = COAST[i - 1], b = COAST[i];
+          var t = (z - a[1]) / ((b[1] - a[1]) || 1);
+          x = a[0] + (b[0] - a[0]) * t;
+          break;
+        }
+      }
+    }
+    return x + (fbm(z * 0.011, 7.3, 3, 2, 0.5) - 0.5) * 46;
   }
+
   function landMask(x, z) {
     var d = x - coastX(z);
-    var bay = 1 - Math.min(1, Math.hypot(x - 150, z - 585) / 105);
-    return d - bay * 105;
+    var bay = 1 - Math.min(1, Math.hypot(x - 392, z - 842) / 58);
+    return d - bay * 62;
   }
 
   /* --- hydrology -----------------------------------------------------------
@@ -83,8 +109,8 @@
    * surface follows the bank height at the nearest centreline point, so a
    * river actually runs downhill from its source to its mouth.
    */
-  var CHANNEL = 24;      // how far out the banks are pulled down
-  var RIVER_W = 9.5;     // half-width of open water
+  var CHANNEL = 28;      // how far out the banks are pulled down
+  var RIVER_W = 10;      // half-width of open water
   var CARVE = 0.078;     // depth of the cut, in normalised height
   var SURFACE = 0.044;   // water sits this far below the original bank
 
@@ -104,10 +130,16 @@
     riverLines = W.RIVERS.map(function (r) {
       var pts = r.pts;
       var lvl = new Array(pts.length);
-      for (var i = 0; i < pts.length; i++) lvl[i] = baseHeight(pts[i][0], pts[i][1]);
-      for (i = 1; i < lvl.length; i++) {
-        lvl[i] = Math.min(lvl[i], lvl[i - 1] - 0.005);
+      var minX = 1e9, minZ = 1e9, maxX = -1e9, maxZ = -1e9;
+      for (var i = 0; i < pts.length; i++) {
+        lvl[i] = baseHeight(pts[i][0], pts[i][1]);
+        minX = Math.min(minX, pts[i][0]); minZ = Math.min(minZ, pts[i][1]);
+        maxX = Math.max(maxX, pts[i][0]); maxZ = Math.max(maxZ, pts[i][1]);
       }
+      for (i = 1; i < lvl.length; i++) {
+        lvl[i] = Math.min(lvl[i] - 0.006, lvl[i - 1] - 0.0003);
+      }
+      lvl[0] = Math.max(lvl[0] - 0.006, lvl[1] ? lvl[1] + 0.0003 : lvl[0]);
       // Mouth: settle into the lake it drains to, if any.
       var last = pts.length - 1;
       var lk = lakeAt(pts[last][0], pts[last][1]);
@@ -115,7 +147,7 @@
         lvl[last] = Math.min(lvl[last], lk._level);
         lk._level = Math.min(lk._level, lvl[last]);
       }
-      return { pts: pts, lvl: lvl, name: r.name };
+      return { pts: pts, lvl: lvl, name: r.name, bbox: [minX, minZ, maxX, maxZ] };
     });
   }
 
@@ -141,7 +173,12 @@
   function riverInfo(x, z) {
     var bd = 1e9, bx = 0, bz = 0, blvl = 0;
     for (var r = 0; r < riverLines.length; r++) {
-      var line = riverLines[r], pts = line.pts;
+      var line = riverLines[r];
+      var bb = line.bbox;
+      if (bb && (x < bb[0] - CHANNEL || x > bb[2] + CHANNEL || z < bb[1] - CHANNEL || z > bb[3] + CHANNEL)) {
+        continue;
+      }
+      var pts = line.pts;
       for (var i = 1; i < pts.length; i++) {
         var ax = pts[i - 1][0], az = pts[i - 1][1];
         var dx = pts[i][0] - ax, dz = pts[i][1] - az;
@@ -170,11 +207,13 @@
     var basin = (fbm(nx * 2.3, nz * 2.3, 4, 2.0, 0.42) - 0.5) * 0.26;
     var local = (fbm(nx * 6.5 + 3, nz * 6.5 + 8, 3, 2.1, 0.38) - 0.5) * 0.045;
 
-    // Two named ranges, masked so mountains only exist where they belong.
-    var sierra  = Math.max(0, 1 - Math.abs(nx - 0.80) * 5.2);
-    var coastal = Math.max(0, 1 - Math.abs(nx - 0.15) * 8.5);
+    // Two named ranges, smoothly rolled with smoothstep hermite interpolation.
+    var ts = clamp01(1 - Math.abs(nx - 0.80) * 5.0);
+    var sierra = ts * ts * (3 - 2 * ts);
+    var tc = clamp01(1 - Math.abs(nx - 0.15) * 6.0);
+    var coastal = tc * tc * (3 - 2 * tc);
     var ridge = 1 - Math.abs(fbm(nx * 3.1 + 11, nz * 3.1 + 4, 4, 2.1, 0.5) * 2 - 1);
-    var range = sierra * sierra * 0.92 + coastal * coastal * 0.40;
+    var range = sierra * 0.92 + coastal * 0.40;
     var mtn = range * (0.35 + ridge * ridge * 0.85);
 
     // A broad flat trough down the middle - the central valley.
@@ -200,13 +239,13 @@
     if (h <= SEA) return h;
 
     // Blend the ground down to a bed that is genuinely below the water
-    // surface, so the channel holds its river instead of the water sitting on
-    // top of a ridge.
+    // surface with a smooth natural parabolic valley profile.
     var ri = riverInfo(x, z);
     if (ri.d < CHANNEL) {
-      var k = 1 - ri.d / CHANNEL;
+      var k = Math.cos((ri.d / CHANNEL) * (Math.PI * 0.5));
       k = k * k;
-      h = h * (1 - k) + (ri.level - 0.026) * k;
+      var targetBed = Math.min(h - 0.008, ri.level - 0.008);
+      h = h * (1 - k) + targetBed * k;
     }
     var li = lakeInfo(x, z);
     if (li) {
@@ -269,21 +308,42 @@
   var decks = [];
   function setDecks(list) { decks = list || []; }
 
-  function surfaceAt(x, z) {
+  /**
+   * Bridge decks are oriented, pitched rectangles, not flat discs: a span
+   * between two banks of different height rises across its length, and the
+   * ground the car rides has to rise with it.
+   */
+  function deckAt(x, z) {
     for (var i = 0; i < decks.length; i++) {
       var d = decks[i];
-      if (Math.abs(x - d.x) < d.r && Math.abs(z - d.z) < d.r &&
-          Math.hypot(x - d.x, z - d.z) < d.r) return d.y;
+      var dx = x - d.x, dz = z - d.z;
+      var along = dx * d.ux + dz * d.uz;
+      var reach = d.half + d.ramp;
+      if (along > reach || along < -reach) continue;
+      var across = dx * d.uz - dz * d.ux;
+      if (across > d.wide || across < -d.wide) continue;
+      var y = d.y + d.slope * (along > d.half ? d.half
+                             : along < -d.half ? -d.half : along);
+      var over = Math.abs(along) - d.half;
+      if (over > 0) {
+        // Approach skirt: ease off the deck onto the bank so the car does not
+        // drop off a lip where the two heights disagree.
+        var k = over / d.ramp;
+        y = y + (reliefAt(x, z) - y) * (k * k * (3 - 2 * k));
+      }
+      return { deck: d, y: y, on: over <= 0 };
     }
-    return reliefAt(x, z);
+    return null;
+  }
+
+  function surfaceAt(x, z) {
+    var d = deckAt(x, z);
+    return d ? d.y : reliefAt(x, z);
   }
 
   function onDeck(x, z) {
-    for (var i = 0; i < decks.length; i++) {
-      var d = decks[i];
-      if (Math.hypot(x - d.x, z - d.z) < d.r) return decks[i];
-    }
-    return null;
+    var d = deckAt(x, z);
+    return d ? d.deck : null;
   }
 
   /* --- regions ------------------------------------------------------------ */
@@ -305,9 +365,10 @@
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
   var PAL = {
-    deep:    hex("#0e1a24"), sea:   hex("#1a3143"), shallow: hex("#2a5162"),
-    beach:   hex("#9c8b5d"), scrub: hex("#6b7742"), dust:    hex("#8f7b46"),
-    rock:    hex("#6d5a3c"), high:  hex("#544835"), peak:    hex("#7b7261")
+    deep:    hex("#07121c"), sea:     hex("#102535"), shallow: hex("#1b4450"),
+    beach:   hex("#d4bd8a"), oasis:   hex("#4f6b3a"), scrub:   hex("#727a4d"),
+    dust:    hex("#a8905e"), clay:    hex("#986846"), rock:    hex("#71614f"),
+    high:    hex("#56534c"), peak:    hex("#88857e"), snow:    hex("#c4c4be")
   };
   function mix(a, b, t) {
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -327,8 +388,12 @@
     for (j = 0; j < VN; j++) {
       for (i = 0; i < VN; i++) {
         var vx = i * CS, vz = j * CS;
-        var wl = waterLevelAt(vx, vz);
-        vhArr[j * VN + i] = wl === null ? reliefAt(vx, vz) : hToRelief(wl);
+        var li = lakeInfo(vx, vz);
+        if (li && li.d < li.lake.r * 0.85) {
+          vhArr[j * VN + i] = hToRelief(li.lake._level);
+        } else {
+          vhArr[j * VN + i] = reliefAt(vx, vz);
+        }
       }
     }
 
@@ -337,11 +402,11 @@
         var x = (i + 0.5) * CS, z = (j + 0.5) * CS;
         var h = heightAt(x, z), col, water = 0;
 
-        var wlc = waterLevelAt(x, z);
-        if (h <= SEA || wlc !== null) {
+        var li = lakeInfo(x, z);
+        if (h <= SEA || (li && li.d < li.lake.r * 0.85)) {
           water = 1;
-          if (wlc !== null) h = wlc;
-          var t = Math.min(1, (SEA - h) / 0.16);
+          var wl = li ? li.lake._level : h;
+          var t = Math.min(1, (SEA - wl) / 0.16);
           col = mix(PAL.shallow, PAL.deep, t);
           col = mix(col, PAL.sea, fbm(x * 0.03, z * 0.03, 2, 2, 0.5) * 0.5);
         } else {
@@ -350,19 +415,41 @@
           var dry = fbm(x * 0.006 + 30, z * 0.006 + 12, 3, 2, 0.5);
 
           if (e < 0.035) col = mix(PAL.beach, PAL.scrub, e / 0.035);
-          else if (e < 0.32) col = mix(PAL.dust, PAL.scrub, 0.35);
-          else if (e < 0.60) col = mix(PAL.dust, PAL.rock, (e - 0.32) / 0.28);
-          else if (e < 0.83) col = mix(PAL.rock, PAL.high, (e - 0.60) / 0.23);
-          else col = mix(PAL.high, PAL.peak, (e - 0.83) / 0.17);
+          else if (e < 0.30) col = mix(PAL.dust, PAL.scrub, 0.32);
+          else if (e < 0.58) col = mix(PAL.dust, PAL.rock, (e - 0.30) / 0.28);
+          else if (e < 0.82) col = mix(PAL.rock, PAL.high, (e - 0.58) / 0.24);
+          else col = mix(PAL.high, PAL.peak, (e - 0.82) / 0.18);
 
+          // Biome texturing
           col = mix(col, PAL.scrub, clamp01((veg - 0.44) * 2.3) * 0.34);
-          col = mix(col, PAL.dust, clamp01((dry - 0.5) * 1.4) * 0.22);
+          col = mix(col, PAL.dust, clamp01((dry - 0.5) * 1.4) * 0.24);
+
+          // Exposed high granite / snow on the highest peaks
+          if (e > 0.88) col = mix(col, PAL.snow, (e - 0.88) / 0.12 * 0.55);
+
+          // Badlands clay in southern / eastern wasteland
+          var clayNoise = fbm(x * 0.005 + 18, z * 0.005 + 85, 3, 2, 0.5);
+          if (clayNoise > 0.56 && e < 0.6) {
+            col = mix(col, PAL.clay, (clayNoise - 0.56) * 1.6 * 0.38);
+          }
+
+          // Fertile riverbanks & alluvial valley greenery
+          var ri = riverInfo(x, z);
+          if (ri.d < CHANNEL * 1.6) {
+            var rFactor = 1 - ri.d / (CHANNEL * 1.6);
+            col = mix(col, PAL.oasis, rFactor * 0.50);
+          }
+
+          // Coastal beaches
+          var land = landMask(x, z);
+          if (land < 18 && land >= 0) {
+            col = mix(col, PAL.beach, (1 - land / 18) * 0.8);
+          }
 
           var nr = nearestRegion(x, z);
           var rg = W.region(nr.region);
-          if (rg) col = mix(col, hex(rg.color), 0.14);
-          if (nr.edge < 5) col = mix(col, [26, 24, 20], (1 - nr.edge / 5) * 0.5);
-
+          if (rg) col = mix(col, hex(rg.color), 0.12);
+          if (nr.edge < 5) col = mix(col, [26, 24, 20], (1 - nr.edge / 5) * 0.45);
         }
 
         // Radiation blooms tint the ground rather than glowing over it.
@@ -370,8 +457,8 @@
           var hz = W.HAZARDS[k];
           var d2 = Math.hypot(hz.x - x, hz.z - z);
           if (d2 < hz.r) {
-            var f = (1 - d2 / hz.r) * 0.5;
-            col = mix(col, hz.kind === "tox" ? [120, 170, 60] : [96, 190, 110], f);
+            var f = (1 - d2 / hz.r) * 0.55;
+            col = mix(col, hz.kind === "tox" ? [130, 185, 65] : [100, 205, 120], f);
           }
         }
 
@@ -472,6 +559,12 @@
     pts.push([b.x, b.z]);
     r._pts = pts;
     return pts;
+  }
+
+  /** Half-width of a road in WORLD units - the same figure the mask is
+   *  rasterised with, so what you see is exactly what you can drive on. */
+  function roadHalfWidth(r) {
+    return (2 + r.w * 3) * (SIZE / ROADRES) * 0.5;
   }
 
   function buildRoadMask() {
@@ -606,6 +699,11 @@
    * Draw the terrain.
    * @param o { fogColor, hazeColor, night, seams }
    */
+  var lastLvl = -1;
+  var cornerK = [0, 0, 0, 0];
+  var CORNER = [0, 1, 2, 3];   // cn -> v00, v10, v01, v11
+  function clamp255(v) { v = v | 0; return v < 0 ? 0 : v > 255 ? 255 : v; }
+
   function draw3D(ctx, cam, o) {
     o = o || {};
     var t0 = (global.performance && performance.now()) || 0;
@@ -623,12 +721,23 @@
     // Power of two: it lets the colour and height mips be indexed by a shift,
     // so the geometry the renderer draws is exactly the level it samples.
     var raw = Math.sqrt(total / TARGET_QUADS);
-    var lvl0 = Math.max(0, Math.ceil(Math.log(Math.max(1, raw)) / Math.LN2));
+    var want = Math.max(0, Math.ceil(Math.log(Math.max(1, raw)) / Math.LN2));
+    // Hysteresis. The level is a power of two, so a camera hovering on a
+    // boundary used to flip the whole map between two quad sizes frame to
+    // frame - the "grid keeps changing size" you see while driving. Hold the
+    // current level until the demand is clearly past it in either direction.
+    var lvl0 = want;
+    var exact = Math.log(Math.max(1, raw)) / Math.LN2;
+    if (lastLvl >= 0 && exact > lastLvl - 0.45 && exact < lastLvl + 0.45) {
+      lvl0 = lastLvl;
+    }
+    if (lvl0 < 0) lvl0 = 0;
     var step = 1 << lvl0;
     // Keep the vertex grid inside the preallocated buffers.
     while (((i1 - i0) / step + 2) > MAXV || ((j1 - j0) / step + 2) > MAXV) {
       lvl0++; step = 1 << lvl0;
     }
+    lastLvl = lvl0;
     var hLvl = Math.min(mipVN.length - 1, lvl0);
     var hN = mipVN[hLvl], hArr = mipH[hLvl];
     // Snap the window to the level grid so vertices land on real samples.
@@ -702,6 +811,8 @@
     var fogR = fogC[0], fogG = fogC[1], fogB = fogC[2];
     var fogNear = maxDist * 0.45, fogFar = maxDist * 1.05;
     var invS = 1 / (step * CS);
+    // cn index -> quad corner: bit0 = +i (v10), bit1 = +j (v01).
+
     var seams = o.seams !== false;
 
     ctx.lineJoin = "round";
@@ -718,37 +829,77 @@
       var mj = Math.max(0, Math.min(mn - 1, (cz * mScale) | 0));
       var ci = mj * mn + mi;
       var r, g2, bl;
+      var isSurv = isDiscovered(cx, cz);
 
-      if (!isDiscovered(cx, cz)) {
-        // Unsurveyed: flat black cells, hard edged, exactly like the FO2 map.
-        r = 7; g2 = 9; bl = 12;
+      var ha = Math.min(hN - 1, (i0 + a * step) >> hLvl);
+      var hb = Math.min(hN - 1, (j0 + bb * step) >> hLvl);
+      var ha1 = Math.min(hN - 1, ha + 1), hb1 = Math.min(hN - 1, hb + 1);
+
+      var h00 = hArr[hb * hN + ha], h10 = hArr[hb * hN + ha1];
+      var h01 = hArr[hb1 * hN + ha], h11 = hArr[hb1 * hN + ha1];
+      var minH = Math.min(h00, h10, h01, h11);
+      var maxH = Math.max(h00, h10, h01, h11);
+
+      if (!isSurv) {
+        // Unsurveyed: dark tactical slate with subtle distance fog
+        r = 8; g2 = 12; bl = 16;
+        var depth0 = qd[qq] * 0.25;
+        if (depth0 > fogNear) {
+          var f0 = Math.min(1, (depth0 - fogNear) / (fogFar - fogNear)) * 0.90;
+          r += (fogR - r) * f0; g2 += (fogG - g2) * f0; bl += (fogB - bl) * f0;
+        }
       } else {
-        // Smooth shading: average the four corner normals, each from central
-        // differences on the level grid. Using the quad's own corners alone
-        // made every facet jump, which is what read as "pixelated".
-        var ha = Math.min(hN - 1, (i0 + a * step) >> hLvl);
-        var hb = Math.min(hN - 1, (j0 + bb * step) >> hLvl);
-        var ha1 = Math.min(hN - 1, ha + 1), hb1 = Math.min(hN - 1, hb + 1);
-        var nX = 0, nZ = 0;
+        // Per-VERTEX shading, from central differences at each corner. Two
+        // quads sharing an edge get the same value at the shared corners, so
+        // the lighting is continuous across the mesh. Averaging the four
+        // corners into one flat value - which is what this used to do - is
+        // what made the terrain read as a checkerboard of squares.
         for (var cn = 0; cn < 4; cn++) {
           var vi = (cn & 1) ? ha1 : ha, vj = (cn & 2) ? hb1 : hb;
           var im = vi > 0 ? vi - 1 : 0, ip = vi < hN - 1 ? vi + 1 : hN - 1;
           var jm = vj > 0 ? vj - 1 : 0, jp = vj < hN - 1 ? vj + 1 : hN - 1;
-          nX += (hArr[vj * hN + im] - hArr[vj * hN + ip]) / ((ip - im) || 1);
-          nZ += (hArr[jm * hN + vi] - hArr[jp * hN + vi]) / ((jp - jm) || 1);
+          var cX = (hArr[vj * hN + im] - hArr[vj * hN + ip]) / ((ip - im) || 1);
+          var cZ = (hArr[jm * hN + vi] - hArr[jp * hN + vi]) / ((jp - jm) || 1);
+          cX *= invS * step; cZ *= invS * step;
+          var cl = Math.sqrt(cX * cX + 1 + cZ * cZ);
+          var clam = (cX * sunX + sunY + cZ * sunZ) / cl;
+          var ck = amb + Math.max(0, clam) * (1 - amb) * 1.62 * inten;
+          if (clam < 0) ck *= 1 + clam * 0.55;
+          cornerK[cn] = ck;
         }
-        nX *= 0.25 * invS * step; nZ *= 0.25 * invS * step;
-        var nl = Math.sqrt(nX * nX + 1 + nZ * nZ);
-        var lam = (nX * sunX + sunY + nZ * sunZ) / nl;
-        var k3 = amb + Math.max(0, lam) * (1 - amb) * 1.62 * inten;
-        // Slopes facing away from the light get pushed down harder than a pure
-        // lambert would, which is what makes the relief read at map scale.
-        if (lam < 0) k3 *= 1 + lam * 0.55;
+        // cn bit0 = +i, bit1 = +j, matching v00/v10/v01/v11 below.
+        var k3 = (cornerK[0] + cornerK[1] + cornerK[2] + cornerK[3]) * 0.25;
 
         // Water catches a flat sheen instead of terrain shading.
-        if (mW[ci]) k3 = o.night ? 0.5 : 0.95;
+        if (mW[ci]) {
+          k3 = o.night ? 0.45 : 0.92;
+          cornerK[0] = cornerK[1] = cornerK[2] = cornerK[3] = k3;
+        }
 
-        r = mR[ci] * k3 * tintR; g2 = mG[ci] * k3 * tintG; bl = mB[ci] * k3 * tintB;
+        // Bilinear colour: the mip is a coarse texture, and sampling it
+        // nearest-neighbour puts a hard edge on every quad.
+        var fx = cx * mScale - 0.5, fz = cz * mScale - 0.5;
+        var bi = Math.floor(fx), bj = Math.floor(fz);
+        var tx = fx - bi, tz2 = fz - bj;
+        var bi0 = bi < 0 ? 0 : bi > mn - 1 ? mn - 1 : bi;
+        var bj0 = bj < 0 ? 0 : bj > mn - 1 ? mn - 1 : bj;
+        var bi1 = bi0 + 1 > mn - 1 ? mn - 1 : bi0 + 1;
+        var bj1 = bj0 + 1 > mn - 1 ? mn - 1 : bj0 + 1;
+        var w00 = (1 - tx) * (1 - tz2), w10 = tx * (1 - tz2);
+        var w01 = (1 - tx) * tz2,       w11 = tx * tz2;
+        var p00 = bj0 * mn + bi0, p10 = bj0 * mn + bi1;
+        var p01 = bj1 * mn + bi0, p11 = bj1 * mn + bi1;
+        var baseR, baseG, baseB;
+        if (mW[ci] || mW[p00] || mW[p10] || mW[p01] || mW[p11]) {
+          // Never blend a shoreline: it would smear water colour onto land.
+          baseR = mR[ci]; baseG = mG[ci]; baseB = mB[ci];
+        } else {
+          baseR = mR[p00] * w00 + mR[p10] * w10 + mR[p01] * w01 + mR[p11] * w11;
+          baseG = mG[p00] * w00 + mG[p10] * w10 + mG[p01] * w01 + mG[p11] * w11;
+          baseB = mB[p00] * w00 + mB[p10] * w10 + mB[p01] * w01 + mB[p11] * w11;
+        }
+
+        r = baseR * k3 * tintR; g2 = baseG * k3 * tintG; bl = baseB * k3 * tintB;
 
         var depth = qd[qq] * 0.25;
         if (depth > fogNear) {
@@ -760,17 +911,92 @@
       }
 
       var style = css(r | 0, g2 | 0, bl | 0);
-      ctx.fillStyle = style;
+      var slope = maxH - minH;
+
+      // Approximate Gouraud: a two-stop ramp between the brightest and
+      // darkest corner, using the shared vertex lighting computed above.
+      // Because the endpoints come from vertices, the ramp lines up with the
+      // neighbouring quad's ramp and the facets disappear into each other.
+      var qw = Math.abs(pvx[v11] - pvx[v00]), qh = Math.abs(pvy[v11] - pvy[v00]);
+      var lit = false;
+      if (isSurv && !mW[ci] && (qw > 9 || qh > 9)) {
+        var hiC = 0, loC = 0;
+        for (var cc = 1; cc < 4; cc++) {
+          if (cornerK[cc] > cornerK[hiC]) hiC = cc;
+          if (cornerK[cc] < cornerK[loC]) loC = cc;
+        }
+        var spread = cornerK[hiC] - cornerK[loC];
+        if (spread > 0.010) {
+          var hiV = CORNER[hiC] === 0 ? v00 : CORNER[hiC] === 1 ? v10
+                  : CORNER[hiC] === 2 ? v01 : v11;
+          var loV = CORNER[loC] === 0 ? v00 : CORNER[loC] === 1 ? v10
+                  : CORNER[loC] === 2 ? v01 : v11;
+          var kHi = cornerK[hiC] / k3, kLo = cornerK[loC] / k3;
+          var qGrad = ctx.createLinearGradient(pvx[hiV], pvy[hiV], pvx[loV], pvy[loV]);
+          qGrad.addColorStop(0, css(clamp255(r * kHi), clamp255(g2 * kHi), clamp255(bl * kHi)));
+          qGrad.addColorStop(1, css(clamp255(r * kLo), clamp255(g2 * kLo), clamp255(bl * kLo)));
+          ctx.fillStyle = qGrad;
+          lit = true;
+        }
+      }
+      if (!lit) ctx.fillStyle = style;
+
+      // Canvas2D antialiases every polygon edge, so two quads that share an
+      // edge each cover it only half - and the background shows through as a
+      // hairline. Over a whole heightfield that reads as a lattice laid over
+      // the terrain. Blowing each quad up a fraction of a pixel about its own
+      // centre makes neighbours overlap just enough to close it.
+      var mx = (pvx[v00] + pvx[v10] + pvx[v01] + pvx[v11]) * 0.25;
+      var my = (pvy[v00] + pvy[v10] + pvy[v01] + pvy[v11]) * 0.25;
+      var rad = Math.max(Math.abs(pvx[v11] - pvx[v00]), Math.abs(pvy[v11] - pvy[v00])) * 0.5;
+      var kx = 1 + 0.75 / (rad < 1 ? 1 : rad);
+
       ctx.beginPath();
-      ctx.moveTo(pvx[v00], pvy[v00]);
-      ctx.lineTo(pvx[v10], pvy[v10]);
-      ctx.lineTo(pvx[v11], pvy[v11]);
-      ctx.lineTo(pvx[v01], pvy[v01]);
+      ctx.moveTo(mx + (pvx[v00] - mx) * kx, my + (pvy[v00] - my) * kx);
+      ctx.lineTo(mx + (pvx[v10] - mx) * kx, my + (pvy[v10] - my) * kx);
+      ctx.lineTo(mx + (pvx[v11] - mx) * kx, my + (pvy[v11] - my) * kx);
+      ctx.lineTo(mx + (pvx[v01] - mx) * kx, my + (pvy[v01] - my) * kx);
       ctx.closePath();
       ctx.fill();
-      // Antialiased quad edges leave hairline seams; a same-colour stroke of
-      // one pixel closes them without a second geometry pass.
+
       if (seams) { ctx.strokeStyle = style; ctx.stroke(); }
+
+      // Topographic elevation contour lines (Hearts of Iron IV cartography)
+      if (isSurv && !mW[ci] && (qw > 14 || qh > 14)) {
+        var C_INT = 6.0;
+        var c0 = Math.floor(minH / C_INT), c1 = Math.floor(maxH / C_INT);
+        if (c0 !== c1 && minH > 1.2) {
+          var targetH = c1 * C_INT;
+          var cPts = [];
+          if ((h00 <= targetH && h10 >= targetH) || (h00 >= targetH && h10 <= targetH)) {
+            var t0 = Math.abs(h10 - h00) > 1e-4 ? (targetH - h00) / (h10 - h00) : 0.5;
+            cPts.push({ x: pvx[v00] + (pvx[v10] - pvx[v00]) * t0, y: pvy[v00] + (pvy[v10] - pvy[v00]) * t0 });
+          }
+          if ((h10 <= targetH && h11 >= targetH) || (h10 >= targetH && h11 <= targetH)) {
+            var t1 = Math.abs(h11 - h10) > 1e-4 ? (targetH - h10) / (h11 - h10) : 0.5;
+            cPts.push({ x: pvx[v10] + (pvx[v11] - pvx[v10]) * t1, y: pvy[v10] + (pvy[v11] - pvy[v10]) * t1 });
+          }
+          if ((h11 <= targetH && h01 >= targetH) || (h11 >= targetH && h01 <= targetH)) {
+            var t2 = Math.abs(h01 - h11) > 1e-4 ? (targetH - h11) / (h01 - h11) : 0.5;
+            cPts.push({ x: pvx[v11] + (pvx[v01] - pvx[v11]) * t2, y: pvy[v11] + (pvy[v01] - pvy[v11]) * t2 });
+          }
+          if ((h01 <= targetH && h00 >= targetH) || (h01 >= targetH && h00 <= targetH)) {
+            var t3 = Math.abs(h00 - h01) > 1e-4 ? (targetH - h01) / (h00 - h01) : 0.5;
+            cPts.push({ x: pvx[v01] + (pvx[v00] - pvx[v01]) * t3, y: pvy[v01] + (pvy[v00] - pvy[v01]) * t3 });
+          }
+          if (cPts.length >= 2) {
+            var isMaj = (c1 % 4 === 0);
+            ctx.strokeStyle = isMaj
+              ? (o.night ? "rgba(70, 95, 125, 0.40)" : "rgba(50, 42, 28, 0.40)")
+              : (o.night ? "rgba(45, 65, 90, 0.22)"  : "rgba(70, 60, 42, 0.22)");
+            ctx.lineWidth = isMaj ? 1.3 : 0.8;
+            ctx.beginPath();
+            ctx.moveTo(cPts[0].x, cPts[0].y);
+            ctx.lineTo(cPts[1].x, cPts[1].y);
+            ctx.stroke();
+          }
+        }
+      }
     }
 
     stats.quads = n;
@@ -808,6 +1034,7 @@
     reliefAt: reliefAt,
     surfaceAt: surfaceAt,
     onDeck: onDeck,
+    deckAt: deckAt,
     setDecks: setDecks,
     baseHeight: baseHeight,
     hToRelief: hToRelief,
@@ -817,6 +1044,7 @@
     onRoad: onRoad,
     isWater: function (x, z) { return heightAt(x, z) <= SEA; },
     roadPoints: roadPoints,
+    roadHalfWidth: roadHalfWidth,
     revealCircle: revealCircle,
     revealAll: function () { for (var i = 0; i < discovered.length; i++) discovered[i] = 1; },
     isDiscovered: isDiscovered,

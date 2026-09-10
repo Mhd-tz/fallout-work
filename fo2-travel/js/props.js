@@ -48,6 +48,13 @@
     this.f([b[0], b[1], b[2], b[3]], c);
     return b;
   };
+  /** Flat ribbon between two points at a fixed x - truss members. */
+  B.prototype.brace = function (x, ay, az, by, bz, w, c) {
+    var a0 = this.v(x - w, ay, az), a1 = this.v(x + w, ay, az);
+    var b1 = this.v(x + w, by, bz), b0 = this.v(x - w, by, bz);
+    this.f([a0, a1, b1, b0], c);
+  };
+
   /** Four-sided pyramid - conifer tiers and roofs. */
   B.prototype.cone = function (cx, cz, y0, y1, r, c) {
     var a = [], i;
@@ -147,21 +154,57 @@
     return b;
   })();
 
+  var STEEL = "#8d949b", STEEL_D = "#6f767d", RUST = "#8a6244";
+
+  /**
+   * A riveted through-truss span rather than a plank on two posts: deck,
+   * kerbs, two side trusses with X bracing, portal frames at each end and
+   * piers reaching down into the channel.
+   */
   MESH.bridge = (function () {
     var b = new B();
-    b.box(-5.0, 5.0, -0.4, 0.5, -14, 14, TIMBER, "b");           // deck
-    b.box(-5.2, -4.4, 0.5, 2.0, -14, 14, TIMBER);                 // rails
-    b.box(4.4, 5.2, 0.5, 2.0, -14, 14, TIMBER);
-    b.box(-4.6, 4.6, -4.5, -0.3, -9.5, -8.2, TIMBER);             // piers
-    b.box(-4.6, 4.6, -4.5, -0.3, 8.2, 9.5, TIMBER);
+    var HL = 17, HW = 5.2, TOP = 6.4;
+
+    b.box(-HW, HW, -0.5, 0.45, -HL, HL, TIMBER, "b");        // deck
+    b.box(-HW - 0.5, -HW + 0.4, 0.45, 1.5, -HL, HL, RUST);   // kerbs
+    b.box(HW - 0.4, HW + 0.5, 0.45, 1.5, -HL, HL, RUST);
+
+    [-1, 1].forEach(function (side) {
+      var x = side * HW;
+      // Top chord and vertical posts.
+      b.box(x - 0.35, x + 0.35, TOP - 0.6, TOP, -HL, HL, STEEL);
+      for (var i = -2; i <= 2; i++) {
+        var z = i * (HL / 2);
+        b.box(x - 0.28, x + 0.28, 1.3, TOP, z - 0.3, z + 0.3, STEEL_D);
+      }
+      // X bracing between the posts.
+      for (var k = -2; k < 2; k++) {
+        var z0 = k * (HL / 2), z1 = (k + 1) * (HL / 2);
+        b.brace(x, 1.4, z0, TOP - 0.7, z1, 0.16, STEEL);
+        b.brace(x, TOP - 0.7, z0, 1.4, z1, 0.16, STEEL_D);
+      }
+    });
+
+    // Portal frames tying the two trusses together at each end.
+    [-HL, HL].forEach(function (z) {
+      b.box(-HW - 0.4, HW + 0.4, TOP - 0.7, TOP + 0.2, z - 0.35, z + 0.35, STEEL);
+      b.box(-HW - 0.4, HW + 0.4, TOP - 2.0, TOP - 1.5, z - 0.25, z + 0.25, STEEL_D);
+    });
+
+    // Piers into the water.
+    [-HL * 0.62, HL * 0.62].forEach(function (z) {
+      b.box(-HW + 0.6, HW - 0.6, -7.5, -0.4, z - 1.3, z + 1.3, "#6d6152");
+    });
+
+    // Abutments: concrete blocks under each end. Narrower than the deck and
+    // stopping short of it, so the earth ramps outside them read as the thing
+    // carrying the road up, not as a slab bolted to a slab.
+    [-1, 1].forEach(function (s2) {
+      b.box(-HW + 0.7, HW - 0.7, -11, -0.4,
+            s2 * (HL - 2.2), s2 * (HL + 0.4), "#5f5548");
+    });
     return b;
   })();
-
-  // Rough silhouette height per mesh, so culling can test the whole prop.
-  MESH.deadtree.height = 7;  MESH.pine.height = 8;   MESH.scrub.height = 2;
-  MESH.cactus.height = 4.5;  MESH.rock.height = 2;   MESH.boulder.height = 4;
-  MESH.hut.height = 4;       MESH.shack.height = 4;  MESH.tower.height = 9;
-  MESH.bridge.height = 3;
 
   /* --- deterministic hash -------------------------------------------------- */
   function hash2(i, j, salt) {
@@ -187,6 +230,7 @@
 
   function buildBridges() {
     bridges = [];
+    var raw = [];
     W.ROADS.forEach(function (r) {
       var rp = T.roadPoints(r);
       W.RIVERS.forEach(function (riv) {
@@ -194,25 +238,159 @@
         for (var i = 1; i < rp.length; i++) {
           for (var j = 1; j < pts.length; j++) {
             var hit = segHit(rp[i - 1], rp[i], pts[j - 1], pts[j]);
-            if (!hit) continue;
-            // Deck height is the UNCUT bank either side of the channel, so the
-            // bridge spans the gap instead of sinking into it.
-            var bank = Math.max(
-              T.hToRelief(T.baseHeight(hit.x, hit.z)),
-              T.reliefAt(hit.x + Math.sin(hit.rot) * 22, hit.z + Math.cos(hit.rot) * 22),
-              T.reliefAt(hit.x - Math.sin(hit.rot) * 22, hit.z - Math.cos(hit.rot) * 22)
-            );
-            hit.y = bank + 0.6;
-            bridges.push(hit);
+            if (hit) raw.push(hit);
           }
         }
       });
     });
-    // Hand the decks to the terrain so driving and prop placement know a road
-    // exists over the water.
+
+    // One road can clip the same meander several times, and two roads can cross
+    // within a few units of each other. Without this the spans stack up and
+    // fight for the same patch of river.
+    raw.forEach(function (hit) {
+      for (var k = 0; k < bridges.length; k++) {
+        if (Math.hypot(hit.x - bridges[k].x, hit.z - bridges[k].z) < 34) return;
+      }
+      var span = abutments(hit);
+      if (span) bridges.push(span);
+    });
+
     T.setDecks(bridges.map(function (b) {
-      return { x: b.x, z: b.z, y: b.y, r: 15 };
+      return { x: b.x, z: b.z, y: b.y, ux: b.ux, uz: b.uz,
+               half: b.half, wide: b.wide, slope: b.slope,
+               ramp: b.ramp };
     }));
+  }
+
+  /**
+   * Find where a span can actually land. Walking out along the road from the
+   * crossing to the first dry ground on each side gives the two abutment
+   * heights; the deck is then pitched to meet both. Setting a single height
+   * from the higher bank - which is what this used to do - left the low end
+   * hanging in the air wherever the two banks were not level.
+   */
+  function abutments(hit) {
+    // Local +z of the mesh points along (sin rot, cos rot); see r3.drawMesh.
+    var ux = Math.sin(hit.rot), uz = Math.cos(hit.rot);
+
+    function reach(sign) {
+      var last = null;
+      for (var d = 10; d <= 52; d += 2) {
+        var x = hit.x + ux * sign * d, z = hit.z + uz * sign * d;
+        if (x < 4 || z < 4 || x > W.SIZE - 4 || z > W.SIZE - 4) break;
+        if (T.waterLevelAt(x, z) !== null) { last = null; continue; }
+        if (T.heightAt(x, z) <= T.SEA) { last = null; continue; }
+        // Dry, and dry for another 6 units, so the deck does not land on a
+        // sliver of bank that immediately drops back into the channel.
+        var x2 = hit.x + ux * sign * (d + 6), z2 = hit.z + uz * sign * (d + 6);
+        if (T.waterLevelAt(x2, z2) !== null) continue;
+        last = { d: d, y: T.reliefAt(x, z) };
+        break;
+      }
+      return last;
+    }
+
+    var A = reach(1), B = reach(-1);
+    if (!A || !B) return null;
+
+    var span = Math.max(A.d, B.d);
+    var scale = Math.max(0.9, Math.min(2.3, span / 17));
+
+    // Pitch the deck so each end meets its own bank. A steeper grade than this
+    // is a ramp, not a bridge, so it gets clamped and the deck rides above the
+    // low bank instead of nosing into the high one.
+    var slope = (A.y - B.y) / (A.d + B.d);
+    if (slope > 0.30) slope = 0.30;
+    if (slope < -0.30) slope = -0.30;
+
+    // Sit the deck clearly above the banks: a bridge you step onto from flat
+    // ground does not read as a bridge. The approach ramps below carry the
+    // road up to it.
+    var y = (A.y + B.y) * 0.5 + 2.0 * scale;
+    var wl = T.waterLevelAt(hit.x, hit.z);
+    var minY = (wl === null ? T.hToRelief(T.SEA) : T.hToRelief(wl)) + 2.6;
+    if (y < minY) y = minY;
+
+    var half = 17 * scale;
+    var br = {
+      x: hit.x, z: hit.z, y: y, rot: hit.rot, scale: scale,
+      ux: ux, uz: uz, slope: slope,
+      half: half, wide: 7.4 * scale, ramp: 12
+    };
+    br.ramps = buildRamps(br);
+    // The drivable skirt has to be exactly as long as the earthwork you can
+    // see, or the car climbs air or clips through the embankment.
+    br.ramp = Math.max(br.ramps[0].len, br.ramps[1].len);
+    return br;
+  }
+
+  /**
+   * The earth embankments that carry the road up to the deck. Built per
+   * bridge, since the rise is whatever that particular pair of banks needs.
+   * Each is placed at its own foot with local +z pointing at the bridge, so
+   * it lies on the ground instead of following the deck's pitch.
+   */
+  function buildRamps(br) {
+    var out = [];
+    [1, -1].forEach(function (sgn) {
+      var deckY = br.y + br.slope * br.half * sgn;
+      // Long enough for a comfortable grade, within reason.
+      var len = 12, footY = 0;
+      for (var k = 0; k < 4; k++) {
+        var fx = br.x + br.ux * sgn * (br.half + len);
+        var fz = br.z + br.uz * sgn * (br.half + len);
+        footY = T.reliefAt(fx, fz);
+        var want = Math.max(10, Math.min(30, (deckY - footY) * 6));
+        if (Math.abs(want - len) < 1.5) break;
+        len = want;
+      }
+      var x = br.x + br.ux * sgn * (br.half + len);
+      var z = br.z + br.uz * sgn * (br.half + len);
+      var dx = -br.ux * sgn, dz = -br.uz * sgn;   // local +z points at the bridge
+      out.push({
+        x: x, z: z, y: footY, len: len,
+        rot: Math.atan2(dx, dz),
+        mesh: rampMesh(x, z, dx, dz, len,
+                       Math.max(0.2, deckY - footY), br.wide * 0.86, footY)
+      });
+    });
+    return out;
+  }
+
+  var EARTH = "#8a7a5a", EARTH_D = "#6e6147", GRAVEL = "#4c463c";
+
+  /**
+   * A flared embankment that hugs the ground. There is no depth buffer here,
+   * so anything modelled below the terrain gets painted straight over it - a
+   * version that buried its base nine units read as a black slab parked next
+   * to the bridge. Each cross-section's base is sampled off the real terrain
+   * instead, and buried only far enough to hide the mismatch.
+   */
+  function rampMesh(fx, fz, dirX, dirZ, len, rise, w, footY) {
+    var b = new B();
+    var BURY = 1.4, N = 6;
+    var prev = null, sec = null;
+    for (var i = 0; i <= N; i++) {
+      var t = i / N, z = len * t;
+      var g = T.reliefAt(fx + dirX * z, fz + dirZ * z) - footY;
+      var top = rise * t;
+      if (top < g) top = g;                       // never sit under the ground
+      var base = g - BURY;
+      var flare = Math.max(0.9, (top - base) * 0.55);
+      sec = {
+        tl: b.v(-w, top, z),          tr: b.v(w, top, z),
+        bl: b.v(-w - flare, base, z), br: b.v(w + flare, base, z)
+      };
+      if (prev) {
+        b.f([prev.tl, prev.tr, sec.tr, sec.tl], GRAVEL);   // the carriageway
+        b.f([prev.bl, prev.tl, sec.tl, sec.bl], EARTH);    // left batter
+        b.f([prev.tr, prev.br, sec.br, sec.tr], EARTH_D);  // right batter
+      }
+      prev = sec;
+    }
+    b.f([sec.tl, sec.tr, sec.br, sec.bl], EARTH_D);        // face at the deck
+    b.height = rise + 2;
+    return b;
   }
 
   function buildTowns() {
@@ -374,7 +552,8 @@
     for (var b = 0; b < bridges.length; b++) {
       var br = bridges[b];
       if (!T.isDiscovered(br.x, br.z)) continue;
-      pushAt(cam, br.x, br.y, br.z, MESH.bridge, br.rot, 1, vw, vh);
+      pushAt(cam, br.x, br.y, br.z, MESH.bridge, br.rot, br.scale, vw, vh,
+             -Math.atan(br.slope));
     }
 
     // Keep the NEAREST props when over budget - sorting far-first and then
@@ -387,7 +566,8 @@
     for (var k = 0; k < queue.length; k++) {
       var it = queue[k];
       R.drawMesh(ctx, it.mesh, cam,
-        { x: it.x, y: it.y, z: it.z, rot: it.rot, scale: it.scale },
+        { x: it.x, y: it.y, z: it.z, rot: it.rot, scale: it.scale,
+          pitch: it.pitch },
         { light: light });
     }
     stats.props = queue.length;
@@ -402,7 +582,7 @@
     return pushAt(cam, x, y, z, mesh, rot, scale, vw, vh);
   }
 
-  function pushAt(cam, x, y, z, mesh, rot, scale, vw, vh) {
+  function pushAt(cam, x, y, z, mesh, rot, scale, vw, vh, pitch) {
     var s = cam.project(x, y, z, {});
     if (!s) return;
     // Cull against the prop's on-screen extent, not just its base point. Close
@@ -411,7 +591,8 @@
     var span = (mesh.height || 8) * scale * s.scale;
     var pad = Math.max(140, span);
     if (s.x < -pad || s.x > vw + pad || s.y < -pad - span || s.y > vh + pad) return;
-    queue.push({ x: x, y: y, z: z, mesh: mesh, rot: rot, scale: scale, d: s.w });
+    queue.push({ x: x, y: y, z: z, mesh: mesh, rot: rot, scale: scale,
+                 pitch: pitch || 0, d: s.w });
   }
 
   /** Clouds sit above everything and are drawn before the terrain's props. */
@@ -479,6 +660,22 @@
       seedClouds();
     },
     draw: draw,
+    /** Embankments go down with the ground so the road can be painted on top. */
+    drawRamps: function (ctx, cam, light) {
+      for (var i = 0; i < bridges.length; i++) {
+        var rs = bridges[i].ramps;
+        if (!rs || !T.isDiscovered(bridges[i].x, bridges[i].z)) continue;
+        for (var k = 0; k < rs.length; k++) {
+          var rp = rs[k];
+          var sp = cam.project(rp.x, rp.y, rp.z, {});
+          if (!sp || sp.x < -400 || sp.x > cam.viewport.w + 400 ||
+                     sp.y < -400 || sp.y > cam.viewport.h + 400) continue;
+          R.drawMesh(ctx, rp.mesh, cam,
+            { x: rp.x, y: rp.y, z: rp.z, rot: rp.rot, scale: 1 },
+            { light: light });
+        }
+      }
+    },
     drawClouds: drawClouds,
     bridges: function () { return bridges; },
     towns: function () { return towns; }

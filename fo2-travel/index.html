@@ -16,23 +16,29 @@
       <div id="topbar">
         <div class="brand"><b>CHRYSLUS</b> NAVCOM</div>
 
-        <div class="modechip" id="modechip">
-          <span class="dotm"></span><span id="modetext">SURVEY</span>
+        <div id="modeswitch" class="survey">
+          <button class="ms" id="msSurvey"><i></i>Survey</button>
+          <button class="ms" id="msDrive"><i></i>Drive</button>
+          <span class="mskey">TAB</span>
+          <span class="msauto" id="msauto">Auto-Travel</span>
         </div>
 
         <div id="clockbox">
           <div>
-            <div id="stamp">25 JUL 2241 0813</div>
+            <div id="stamp">
+              <span class="ctime" id="ctime">08:13</span>
+              <span class="cdate" id="cdate">25 JUL 2241</span>
+            </div>
             <div id="daynight">CLEAR &middot; DAY</div>
           </div>
         </div>
 
         <div id="speedbox">
-          <span class="lbl">TIME</span>
-          <button class="spd" id="spd0" title="Pause (Space)">II</button>
-          <button class="spd on" id="spd1" title="Normal">1</button>
-          <button class="spd" id="spd2" title="Fast">2</button>
-          <button class="spd" id="spd3" title="Fastest">3</button>
+          <span class="lbl">TIME RATE</span>
+          <button class="spd" id="spd0" title="Hold time (Space)"><i class="ipause"></i></button>
+          <button class="spd on" id="spd1" title="Real time">&times;1</button>
+          <button class="spd" id="spd2" title="Fast">&times;2</button>
+          <button class="spd" id="spd3" title="Fastest">&times;3</button>
         </div>
 
         <div class="spacer"></div>
@@ -45,19 +51,27 @@
 
       <!-- ================= LEFT: DESTINATIONS ================= -->
       <div id="left" class="panel">
-        <div class="phead">
+        <div class="phead" id="leftHead">
           <span class="sq"></span><span>Known Locations</span>
           <span class="sp"></span><span class="cnt" id="loccount">0/0</span>
+          <button class="fold" id="foldLeft" title="Collapse"><b></b></button>
         </div>
         <input id="search" type="text" placeholder="filter locations…" spellcheck="false" />
         <div id="loclist"></div>
+        <div id="mapkey">
+          <button class="keyhead" id="keyToggle">
+            <span>Map Key</span><span class="sp"></span><b></b>
+          </button>
+          <div class="keygrid" id="keygrid"></div>
+        </div>
       </div>
 
       <!-- ================= RIGHT: DOSSIER ================= -->
       <div id="right" class="panel">
-        <div class="phead">
+        <div class="phead" id="rightHead">
           <span class="sq"></span><span>Route Plan</span>
           <span class="sp"></span><span class="cnt" id="rangelabel"></span>
+          <button class="fold" id="foldRight" title="Collapse"><b></b></button>
         </div>
         <div id="dossier">
           <div id="empty">
@@ -97,6 +111,10 @@
           <div class="gauge">
             <div class="gt"><span>CHASSIS CONDITION</span><b id="condpct">100%</b></div>
             <div class="cells" id="condcells"></div>
+          </div>
+          <div class="gauge" id="boostgauge">
+            <div class="gt"><span>OVERCHARGE <kbd class="gk">SHIFT</kbd></span><b id="boostpct">100%</b></div>
+            <div class="boostbar"><i id="boostfill"></i></div>
           </div>
         </div>
 
@@ -160,7 +178,7 @@
       <div id="errbox" style="display:none;position:absolute;left:0;right:0;bottom:0;z-index:99;background:#3a0d0d;color:#ffb4a8;font:11px monospace;padding:6px 10px"></div>
 
       <div id="boot">
-        <div style="font-family: var(--sans); font-size: 18px; letter-spacing: 6px">
+        <div style="font-family: var(--sans); font-size: 20px; letter-spacing: 3px">
           CHRYSLUS NAVCOM
         </div>
         <div class="bar"><i id="bootbar"></i></div>

@@ -22,8 +22,20 @@
   --text:      #d3ddcd;
   --text-dim:  #7f8f7c;
   --text-mute: #55635a;
-  --mono: "Consolas", "SF Mono", "Menlo", "DejaVu Sans Mono", monospace;
-  --sans: "Bahnschrift", "DIN Alternate", "Oswald", "Segoe UI", system-ui, sans-serif;
+  /* Authored bitmap face, shipped with the view - see fonts/. The Fallout 2
+     interface is a blocky pixel font, and there is no system face that looks
+     like one, so this is a real font file rather than a stack of guesses.
+     10 pixel rows per em: sizes that are multiples of 10px land on whole
+     pixels and stay sharp. */
+  --mono: "FO2 Terminal", "Consolas", "SF Mono", "Menlo", monospace;
+  --sans: "FO2 Terminal", "Bahnschrift", "DIN Alternate", "Segoe UI", sans-serif;
+}
+
+@font-face {
+  font-family: "FO2 Terminal";
+  src: url("../fonts/fo2-terminal.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
@@ -34,7 +46,7 @@ html, body {
   background: transparent;       /* PrismaUI composites over the game */
   color: var(--text);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 10px;
   cursor: default;
 }
 
@@ -74,12 +86,12 @@ html, body {
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255, 182, 66, 0.07), rgba(255, 182, 66, 0));
   font-family: var(--sans);
-  font-size: 11px; letter-spacing: 2.4px; text-transform: uppercase;
+  font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase;
   color: var(--amber);
 }
 .phead .sq { width: 6px; height: 6px; background: var(--amber); flex: 0 0 auto; }
 .phead .sp { flex: 1; }
-.phead .cnt { color: var(--text-mute); letter-spacing: 1px; font-size: 10px; }
+.phead .cnt { color: var(--text-mute); letter-spacing: 0.5px; font-size: 10px; }
 
 /* --- top bar -------------------------------------------------------------- */
 #topbar {
@@ -91,35 +103,158 @@ html, body {
 #topbar .brand {
   display: flex; align-items: center; gap: 9px; padding: 0 14px;
   border-right: 1px solid var(--line);
-  font-family: var(--sans); letter-spacing: 3px; font-size: 12px;
+  font-family: var(--sans); letter-spacing: 1.4px; font-size: 10px;
   color: var(--amber); text-transform: uppercase;
 }
-#topbar .brand b { color: var(--text); font-weight: 500; letter-spacing: 3px; }
-.modechip {
-  display: flex; align-items: center; padding: 0 12px;
-  border-right: 1px solid var(--line);
-  font-size: 11px; letter-spacing: 1.8px; color: var(--text-dim);
+#topbar .brand b { color: var(--text); font-weight: 500; letter-spacing: 1.4px; }
+/* Mode: a two-position switch rather than a word with a dot next to it. The
+   state was already the thing the player changes most often, so it may as
+   well be the control that changes it. */
+#modeswitch {
+  display: flex; align-items: center; gap: 4px; padding: 0 12px;
+  border-right: 1px solid var(--line); position: relative;
 }
-.modechip .dotm {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--green);
-  margin-right: 8px; box-shadow: 0 0 6px var(--green);
+.ms {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 11px 4px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  font-family: var(--sans); font-size: 10px; letter-spacing: 0.9px;
+  text-transform: uppercase; color: var(--text-mute);
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
 }
-.modechip.travel .dotm { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
-.modechip.drive  .dotm { background: var(--blue);  box-shadow: 0 0 6px var(--blue); }
+.ms i {
+  width: 6px; height: 6px; background: currentColor; flex: 0 0 auto;
+  transition: box-shadow 140ms ease;
+}
+.ms:hover { color: var(--text-dim); border-color: rgba(126, 152, 118, 0.4); }
+#modeswitch.survey #msSurvey,
+#modeswitch.drive  #msDrive {
+  color: var(--green); border-color: rgba(127, 224, 154, 0.5);
+  background: rgba(127, 224, 154, 0.10);
+}
+#modeswitch.survey #msSurvey i,
+#modeswitch.drive  #msDrive i { box-shadow: 0 0 7px var(--green); }
+#modeswitch.drive #msDrive {
+  color: var(--blue); border-color: rgba(111, 184, 224, 0.5);
+  background: rgba(111, 184, 224, 0.10);
+}
+#modeswitch.drive #msDrive i { box-shadow: 0 0 7px var(--blue); }
+.mskey {
+  font-size: 10px; letter-spacing: 0; color: var(--text-mute);
+  border: 1px solid var(--line); padding: 2px 4px 1px; margin-left: 3px;
+}
+/* En route the mode is not the player's to pick, so the switch says so. */
+.msauto {
+  display: none; align-items: center; padding: 5px 11px 4px;
+  border: 1px solid var(--line-hot); background: rgba(255, 182, 66, 0.12);
+  font-family: var(--sans); font-size: 10px; letter-spacing: 0.9px;
+  text-transform: uppercase; color: var(--amber);
+}
+#modeswitch.travel .ms, #modeswitch.travel .mskey { display: none; }
+#modeswitch.travel .msauto { display: flex; }
+
+/* --- collapsible panels --------------------------------------------------- */
+.fold {
+  width: 16px; height: 14px; flex: 0 0 auto; cursor: pointer;
+  background: none; border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+}
+.fold:hover { border-color: var(--line-hot); }
+.fold b {
+  width: 7px; height: 7px; display: block;
+  border-left: 2px solid var(--amber); border-bottom: 2px solid var(--amber);
+  transform: rotate(135deg) translate(-1px, -1px);
+  transition: transform 200ms ease;
+}
+.panel.folded .fold b { transform: rotate(-45deg) translate(1px, 1px); }
+.panel.folded > *:not(.phead) {
+  max-height: 0 !important; opacity: 0; overflow: hidden;
+  padding-top: 0; padding-bottom: 0; border: none;
+}
+#left > *:not(.phead), #right > *:not(.phead) {
+  transition: max-height 240ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease;
+  max-height: 1400px;
+}
+.panel.folded { max-height: 34px; }
+
+/* --- map key -------------------------------------------------------------- */
+#mapkey { border-top: 1px solid var(--line); flex: 0 0 auto; }
+.keyhead {
+  display: flex; align-items: center; width: 100%; gap: 8px;
+  padding: 6px 10px; cursor: pointer;
+  background: none; border: none;
+  font-family: var(--sans); font-size: 10px; letter-spacing: 1.1px;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.keyhead:hover { color: var(--amber); }
+.keyhead .sp { flex: 1; }
+.keyhead b {
+  width: 6px; height: 6px;
+  border-left: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg); transition: transform 200ms ease;
+}
+#mapkey.shut .keyhead b { transform: rotate(135deg); }
+.keygrid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 2px 6px; padding: 2px 10px 8px;
+  overflow: hidden;
+  transition: max-height 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 150ms ease;
+  max-height: 120px; opacity: 1;
+}
+#mapkey.shut .keygrid { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+.keygrid span { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-dim); }
+.keygrid span i {
+  width: 14px; text-align: center; color: var(--amber); font-style: normal;
+}
+.keygrid span.dim { color: var(--text-mute); }
+.keygrid span.dim i { color: var(--text-mute); }
+/* The last two rows describe how a counter is drawn, not which glyph it uses,
+   so they show the actual border treatment instead of a duplicate shape. */
+.keygrid i.sw {
+  width: 12px; height: 9px; border: 1px solid var(--text-mute);
+  background: rgba(255, 255, 255, 0.04);
+}
+.keygrid i.sw.dash { border-style: dashed; }
+.keygrid i.sw.hot { border-color: var(--red); background: rgba(224, 87, 74, 0.18); }
 
 #clockbox {
   display: flex; align-items: center; gap: 14px; padding: 0 16px;
   border-right: 1px solid var(--line);
 }
 #stamp {
-  font-size: 15px; letter-spacing: 2px; color: var(--green);
+  font-size: 15px; letter-spacing: 0.9px; color: var(--green);
+  display: flex; align-items: baseline; gap: 9px;
   text-shadow: 0 0 8px rgba(127, 224, 154, 0.35);
 }
-#daynight { font-size: 10px; letter-spacing: 1.5px; color: var(--text-mute); }
+#stamp .ctime { font-size: 15px; letter-spacing: 0.9px; color: var(--green); }
+#stamp .cdate { font-size: 10px; letter-spacing: 0.8px; color: var(--text-dim); }
+#daynight { font-size: 10px; letter-spacing: 0.7px; color: var(--text-mute); }
 
 /* HOI4 time-control cluster */
 #speedbox { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-right: 1px solid var(--line); }
-#speedbox .lbl { font-size: 9px; letter-spacing: 1.4px; color: var(--text-mute); }
+#speedbox .lbl { font-size: 10px; letter-spacing: 0.6px; color: var(--text-mute); }
+
+/* Two bars, not a pair of capital I's. */
+.spd .ipause {
+  display: inline-block; width: 8px; height: 9px; vertical-align: -1px;
+  border-left: 3px solid currentColor; border-right: 3px solid currentColor;
+}
+
+/* Manual driving has no use for a time multiplier - the clock follows the
+   wheels - so the control folds away instead of sitting there inert. */
+#speedbox {
+  overflow: hidden;
+  transition: max-width 260ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 180ms ease, padding 260ms cubic-bezier(0.4, 0, 0.2, 1),
+              margin 260ms cubic-bezier(0.4, 0, 0.2, 1);
+  max-width: 260px; opacity: 1;
+}
+#speedbox.hidden {
+  max-width: 0; opacity: 0; padding-left: 0; padding-right: 0;
+  margin-left: 0; margin-right: 0; border-right-color: transparent;
+  pointer-events: none;
+}
 .spd {
   width: 20px; height: 20px; border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03); color: var(--text-dim);
@@ -132,7 +267,7 @@ html, body {
 .tbtn {
   display: flex; align-items: center; padding: 0 14px;
   border-left: 1px solid var(--line);
-  font-size: 11px; letter-spacing: 1.6px; color: var(--text-dim);
+  font-size: 10px; letter-spacing: 0.7px; color: var(--text-dim);
   background: none; font-family: var(--mono); cursor: pointer;
 }
 .tbtn:hover { background: rgba(255, 182, 66, 0.08); color: var(--amber); }
@@ -140,7 +275,7 @@ html, body {
 
 #focusbadge {
   display: flex; align-items: center; gap: 7px; padding: 0 12px;
-  border-left: 1px solid var(--line); font-size: 10px; letter-spacing: 1.4px;
+  border-left: 1px solid var(--line); font-size: 10px; letter-spacing: 0.6px;
   color: var(--text-mute);
 }
 #focusbadge .dotm { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
@@ -155,7 +290,7 @@ html, body {
 #search {
   width: 100%; padding: 7px 10px; background: rgba(0, 0, 0, 0.45);
   border: none; border-bottom: 1px solid var(--line);
-  color: var(--text); font-family: var(--mono); font-size: 12px; letter-spacing: 1px;
+  color: var(--text); font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px;
   outline: none;
 }
 #search::placeholder { color: var(--text-mute); }
@@ -167,7 +302,7 @@ html, body {
 #loclist::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.3); }
 
 .rgroup {
-  padding: 5px 10px 3px; font-size: 9px; letter-spacing: 2px;
+  padding: 5px 10px 3px; font-size: 10px; letter-spacing: 0.9px;
   color: var(--text-mute); background: rgba(255, 255, 255, 0.025);
   border-top: 1px solid rgba(126, 152, 118, 0.10);
 }
@@ -185,9 +320,9 @@ html, body {
   border: 1px solid var(--line); font-size: 10px; color: var(--text-dim);
 }
 .litem.here .ic { border-color: var(--green); color: var(--green); }
-.litem .nm { flex: 1; font-size: 12px; letter-spacing: 1.1px; color: var(--text); }
+.litem .nm { flex: 1; font-size: 10px; letter-spacing: 0.5px; color: var(--text); }
 .litem.undisc .nm { color: var(--text-mute); }
-.litem .di { font-size: 10px; color: var(--text-mute); letter-spacing: 0.5px; }
+.litem .di { font-size: 10px; color: var(--text-mute); letter-spacing: 0; }
 .risk { display: flex; gap: 2px; margin-left: 2px; }
 .risk i { width: 3px; height: 9px; background: rgba(255, 255, 255, 0.12); display: block; }
 .risk i.r1 { background: var(--green); }
@@ -206,15 +341,15 @@ html, body {
 
 .dhero { padding: 12px 12px 10px; border-bottom: 1px solid var(--line); }
 .dhero .dname {
-  font-family: var(--sans); font-size: 21px; letter-spacing: 2.5px;
+  font-family: var(--sans); font-size: 20px; letter-spacing: 1.1px;
   color: var(--amber); line-height: 1.1;
 }
-.dhero .dreg { font-size: 10px; letter-spacing: 2px; color: var(--text-mute); margin-top: 3px; }
-.dhero .ddesc { font-size: 11px; line-height: 1.55; color: var(--text-dim); margin-top: 8px; }
+.dhero .dreg { font-size: 10px; letter-spacing: 0.9px; color: var(--text-mute); margin-top: 3px; }
+.dhero .ddesc { font-size: 10px; line-height: 1.55; color: var(--text-dim); margin-top: 8px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 9px 12px 0; }
 .chip {
-  font-size: 9px; letter-spacing: 1.2px; padding: 2px 6px;
+  font-size: 10px; letter-spacing: 0.5px; padding: 2px 6px;
   border: 1px solid var(--line); color: var(--text-dim);
 }
 .chip.warn { border-color: rgba(224, 87, 74, 0.5); color: var(--red); }
@@ -222,8 +357,8 @@ html, body {
 
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); margin: 11px 0 0; }
 .stat { background: rgba(10, 13, 12, 0.9); padding: 8px 10px; }
-.stat .k { font-size: 9px; letter-spacing: 1.6px; color: var(--text-mute); }
-.stat .v { font-size: 16px; letter-spacing: 1px; color: var(--text); margin-top: 2px; }
+.stat .k { font-size: 10px; letter-spacing: 0.7px; color: var(--text-mute); }
+.stat .v { font-size: 15px; letter-spacing: 0.5px; color: var(--text); margin-top: 2px; }
 .stat .v.warn { color: var(--red); }
 .stat .v.ok { color: var(--green); }
 .stat .u { font-size: 10px; color: var(--text-mute); margin-left: 3px; }
@@ -231,13 +366,13 @@ html, body {
 .rowline {
   display: flex; align-items: center; justify-content: space-between;
   padding: 7px 12px; border-top: 1px solid rgba(126, 152, 118, 0.12);
-  font-size: 11px; letter-spacing: 1px; color: var(--text-dim);
+  font-size: 10px; letter-spacing: 0.5px; color: var(--text-dim);
 }
 .rowline b { color: var(--text); font-weight: 400; }
 
 .forecast { padding: 9px 12px 11px; border-top: 1px solid var(--line); }
 .forecast .fh {
-  font-size: 9px; letter-spacing: 1.8px; color: var(--text-mute);
+  font-size: 10px; letter-spacing: 0.8px; color: var(--text-mute);
   display: flex; justify-content: space-between; margin-bottom: 7px;
 }
 .fbars { display: flex; gap: 3px; height: 26px; align-items: flex-end; }
@@ -246,8 +381,8 @@ html, body {
 .actions { display: flex; flex-direction: column; gap: 1px; background: var(--line); border-top: 1px solid var(--line); }
 .act {
   padding: 10px; background: rgba(12, 16, 14, 0.95); border: none;
-  color: var(--text); font-family: var(--sans); font-size: 12px;
-  letter-spacing: 2.4px; text-transform: uppercase; cursor: pointer; text-align: left;
+  color: var(--text); font-family: var(--sans); font-size: 10px;
+  letter-spacing: 1.1px; text-transform: uppercase; cursor: pointer; text-align: left;
   display: flex; align-items: center; gap: 9px;
 }
 .act .k { color: var(--text-mute); font-family: var(--mono); font-size: 10px; letter-spacing: 0; }
@@ -258,7 +393,7 @@ html, body {
 .act:disabled { opacity: 0.35; cursor: not-allowed; }
 .act:disabled:hover { background: rgba(12, 16, 14, 0.95); color: var(--text); }
 
-#empty { padding: 26px 16px; text-align: center; color: var(--text-mute); font-size: 11px; line-height: 1.8; letter-spacing: 1px; }
+#empty { padding: 26px 16px; text-align: center; color: var(--text-mute); font-size: 10px; line-height: 1.8; letter-spacing: 0.5px; }
 
 /* --- bottom: vehicle status ---------------------------------------------- */
 #bottom {
@@ -269,29 +404,53 @@ html, body {
   display: flex; flex-direction: column; justify-content: center;
   padding: 0 16px; border-right: 1px solid var(--line); min-width: 190px;
 }
-#bottom .vname .t { font-family: var(--sans); font-size: 17px; letter-spacing: 2.5px; color: var(--text); }
-#bottom .vname .s { font-size: 10px; letter-spacing: 1.6px; color: var(--text-mute); margin-top: 3px; }
+#bottom .vname .t { font-family: var(--sans); font-size: 15px; letter-spacing: 1.1px; color: var(--text); }
+#bottom .vname .s { font-size: 10px; letter-spacing: 0.7px; color: var(--text-mute); margin-top: 3px; }
 
 .gauges { display: flex; align-items: center; gap: 20px; padding: 0 18px; border-right: 1px solid var(--line); }
 .gauge { width: 128px; }
 .gauge .gt {
-  display: flex; justify-content: space-between; font-size: 9px;
-  letter-spacing: 1.5px; color: var(--text-mute); margin-bottom: 5px;
+  display: flex; justify-content: space-between; font-size: 10px;
+  letter-spacing: 0.7px; color: var(--text-mute); margin-bottom: 5px;
 }
-.gauge .gt b { color: var(--text); font-weight: 400; font-size: 11px; }
+.gauge .gt b { color: var(--text); font-weight: 400; font-size: 10px; }
 .cells { display: flex; gap: 2px; height: 13px; }
 .cells i { flex: 1; background: rgba(255, 255, 255, 0.07); display: block; }
 .cells i.on { background: var(--green); }
 .cells i.on.warn { background: var(--amber); }
 .cells i.on.crit { background: var(--red); }
 
+/* Overcharge reservoir: one continuous bar, so a drain reads as motion
+   rather than as cells blinking out one at a time. */
+.gauge .gt .gk {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px;
+  border: 1px solid var(--line); padding: 0 3px; margin-left: 5px;
+  color: var(--text-mute);
+}
+.boostbar {
+  height: 13px; background: rgba(255, 255, 255, 0.07);
+  position: relative; overflow: hidden;
+}
+.boostbar i {
+  display: block; height: 100%; width: 100%;
+  background: linear-gradient(90deg, #2f7fd8, #6fd8ff);
+  transform-origin: left center;
+  transition: transform 90ms linear;
+}
+#boostgauge.live .boostbar i { background: linear-gradient(90deg, #6fd8ff, #d8fbff); }
+#boostgauge.live .boostbar {
+  box-shadow: 0 0 10px rgba(111, 216, 255, 0.55);
+}
+#boostgauge.dry .boostbar i { background: linear-gradient(90deg, #6b3a2a, #b3592a); }
+#boostgauge.live .gt b { color: #a9e9ff; }
+
 #speedo { display: flex; align-items: center; gap: 16px; padding: 0 20px; border-right: 1px solid var(--line); }
 #speedo .big {
-  font-size: 34px; letter-spacing: 1px; color: var(--amber); line-height: 1;
+  font-size: 30px; letter-spacing: 0.5px; color: var(--amber); line-height: 1;
   min-width: 74px; text-align: right;
 }
-#speedo .un { font-size: 10px; letter-spacing: 1.6px; color: var(--text-mute); }
-#odo { font-size: 10px; letter-spacing: 1.2px; color: var(--text-mute); margin-top: 5px; }
+#speedo .un { font-size: 10px; letter-spacing: 0.7px; color: var(--text-mute); }
+#odo { font-size: 10px; letter-spacing: 0.5px; color: var(--text-mute); margin-top: 5px; }
 
 #driveinfo { flex: 1; padding: 10px 16px; display: flex; flex-direction: column; justify-content: center; gap: 7px; }
 #compass {
@@ -301,7 +460,7 @@ html, body {
 #compass .tape { position: absolute; top: 0; bottom: 0; left: 0; width: 3000px; }
 #compass .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(126, 152, 118, 0.35); }
 #compass .card {
-  position: absolute; top: 3px; font-size: 10px; letter-spacing: 1.5px;
+  position: absolute; top: 3px; font-size: 10px; letter-spacing: 0.7px;
   color: var(--text-dim); transform: translateX(-50%);
 }
 #compass .needle {
@@ -309,10 +468,10 @@ html, body {
   background: var(--amber); box-shadow: 0 0 6px var(--amber);
 }
 #compass .wp {
-  position: absolute; top: 4px; font-size: 11px; color: var(--green);
+  position: absolute; top: 4px; font-size: 10px; color: var(--green);
   transform: translateX(-50%); text-shadow: 0 0 6px rgba(127, 224, 154, 0.5);
 }
-#hint { font-size: 10px; letter-spacing: 1.3px; color: var(--text-mute); }
+#hint { font-size: 10px; letter-spacing: 0.6px; color: var(--text-mute); }
 #hint kbd {
   border: 1px solid var(--line); padding: 1px 5px; margin: 0 2px;
   color: var(--text-dim); font-family: var(--mono); font-size: 10px;
@@ -333,12 +492,12 @@ html, body {
 .mk .body:hover { border-color: var(--amber); background: rgba(28, 22, 10, 0.95); }
 .mk .ico {
   width: 22px; display: flex; align-items: center; justify-content: center;
-  font-size: 11px; color: var(--amber); border-right: 1px solid var(--line);
+  font-size: 10px; color: var(--amber); border-right: 1px solid var(--line);
   background: rgba(255, 182, 66, 0.10);
 }
 .mk .txt { padding: 3px 8px 3px 7px; }
-.mk .nm { font-size: 11px; letter-spacing: 1.4px; color: var(--text); line-height: 1.15; }
-.mk .sub { font-size: 9px; letter-spacing: 1px; color: var(--text-mute); }
+.mk .nm { font-size: 10px; letter-spacing: 0.6px; color: var(--text); line-height: 1.15; }
+.mk .sub { font-size: 10px; letter-spacing: 0.5px; color: var(--text-mute); }
 .mk.sel .body { border-color: var(--amber); background: rgba(48, 34, 10, 0.95); }
 .mk.sel .nm { color: var(--amber); }
 .mk.here .ico { color: var(--green); background: rgba(127, 224, 154, 0.14); border-right-color: rgba(127, 224, 154, 0.4); }
@@ -391,7 +550,7 @@ html, body {
   padding: 6px 12px;
   background: rgba(224, 87, 74, 0.14);
   border-bottom: 1px solid rgba(224, 87, 74, 0.4);
-  font-family: var(--sans); font-size: 10px; letter-spacing: 3px; color: var(--red);
+  font-family: var(--sans); font-size: 10px; letter-spacing: 1.4px; color: var(--red);
 }
 .encwin.neutral .encbar { background: rgba(111, 184, 224, 0.12); border-bottom-color: rgba(111, 184, 224, 0.4); color: var(--blue); }
 .encwin.hazard .encbar { background: rgba(127, 224, 154, 0.12); border-bottom-color: rgba(127, 224, 154, 0.4); color: var(--green); }
@@ -401,7 +560,7 @@ html, body {
 }
 @keyframes blip { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.15; } }
 .encbar .rule { flex: 1; height: 1px; background: currentColor; opacity: 0.3; }
-.encbar .chan { opacity: 0.55; letter-spacing: 1.6px; font-size: 9px; }
+.encbar .chan { opacity: 0.55; letter-spacing: 0.7px; font-size: 10px; }
 
 /* the silhouette plate */
 .encart {
@@ -431,19 +590,19 @@ html, body {
   gap: 14px; padding: 12px 14px 10px;
 }
 .enctitle {
-  font-family: var(--sans); font-size: 26px; letter-spacing: 4px;
+  font-family: var(--sans); font-size: 30px; letter-spacing: 1.8px;
   color: var(--red); line-height: 1;
 }
 .encwin.neutral .enctitle { color: var(--blue); }
 .encwin.hazard .enctitle { color: var(--green); }
-.encwhere { font-size: 10px; letter-spacing: 1.8px; color: var(--text-mute); margin-top: 6px; }
+.encwhere { font-size: 10px; letter-spacing: 0.8px; color: var(--text-mute); margin-top: 6px; }
 .encthreatbox { text-align: right; flex: 0 0 auto; }
-.encthreatbox .tlabel { font-size: 9px; letter-spacing: 2px; color: var(--text-mute); margin-bottom: 5px; }
+.encthreatbox .tlabel { font-size: 10px; letter-spacing: 0.9px; color: var(--text-mute); margin-bottom: 5px; }
 .encthreatbox .risk { justify-content: flex-end; }
 .encthreatbox .risk i { height: 12px; width: 4px; }
 
 .encbody {
-  padding: 0 14px 14px; font-size: 13px; line-height: 1.7;
+  padding: 0 14px 14px; font-size: 10px; line-height: 1.7;
   color: var(--text); min-height: 46px;
 }
 .encbody.typing::after {
@@ -452,7 +611,7 @@ html, body {
 }
 
 .encprompt {
-  padding: 5px 14px; font-size: 9px; letter-spacing: 2.6px; color: var(--text-mute);
+  padding: 5px 14px; font-size: 10px; letter-spacing: 1.2px; color: var(--text-mute);
   border-top: 1px solid var(--line); background: rgba(255, 255, 255, 0.02);
 }
 
@@ -462,17 +621,17 @@ html, body {
   padding: 11px 14px; background: none; border: none;
   border-top: 1px solid rgba(126, 152, 118, 0.13);
   cursor: pointer; text-align: left; width: 100%;
-  font-family: var(--mono); font-size: 13px; color: var(--text);
+  font-family: var(--mono); font-size: 10px; color: var(--text);
 }
 .echoice .num {
-  width: 20px; flex: 0 0 auto; font-size: 11px; color: var(--text-mute);
+  width: 20px; flex: 0 0 auto; font-size: 10px; color: var(--text-mute);
 }
 .echoice .arrow {
   width: 16px; flex: 0 0 auto; color: var(--amber); opacity: 0;
   transform: translateX(-4px); transition: opacity .08s, transform .08s;
 }
-.echoice .lbl { flex: 1; letter-spacing: 0.6px; }
-.echoice .tag { font-size: 10px; letter-spacing: 1.2px; color: var(--text-mute); }
+.echoice .lbl { flex: 1; letter-spacing: 0.3px; }
+.echoice .tag { font-size: 10px; letter-spacing: 0.5px; color: var(--text-mute); }
 .echoice:hover { background: rgba(255, 182, 66, 0.10); color: var(--amber); }
 .echoice:hover .arrow { opacity: 1; transform: translateX(0); }
 .echoice:hover .num { color: var(--amber); }
@@ -487,7 +646,7 @@ html, body {
 .toast {
   padding: 6px 14px; background: rgba(12, 16, 14, 0.95);
   border: 1px solid var(--line); border-left: 2px solid var(--amber);
-  font-size: 11px; letter-spacing: 1.3px; color: var(--text);
+  font-size: 10px; letter-spacing: 0.6px; color: var(--text);
 }
 .toast.warn { border-left-color: var(--red); color: #f0a89e; }
 .toast.good { border-left-color: var(--green); color: #b6ecc4; }
@@ -500,9 +659,9 @@ html, body {
 #travelbar.on { display: block; }
 #travelbar .tb {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 12px; font-size: 10px; letter-spacing: 1.6px; color: var(--text-mute);
+  padding: 7px 12px; font-size: 10px; letter-spacing: 0.7px; color: var(--text-mute);
 }
-#travelbar .tb b { color: var(--amber); font-weight: 400; letter-spacing: 2px; }
+#travelbar .tb b { color: var(--amber); font-weight: 400; letter-spacing: 0.9px; }
 #trackwrap { height: 8px; margin: 0 12px 10px; background: rgba(0, 0, 0, 0.5); position: relative; }
 #track { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--amber); }
 #trackwrap .pip {
@@ -513,12 +672,12 @@ html, body {
 #boot {
   position: absolute; inset: 0; z-index: 90; background: var(--bg);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 14px; color: var(--green); font-size: 12px; letter-spacing: 2px;
+  gap: 14px; color: var(--green); font-size: 10px; letter-spacing: 0.9px;
 }
 #boot .bar { width: 240px; height: 3px; background: rgba(127, 224, 154, 0.15); }
 #boot .bar i { display: block; height: 100%; width: 0; background: var(--green); }
 #boot.done { display: none; }
-#bootlog { font-size: 10px; color: var(--green-dim); letter-spacing: 1.4px; height: 14px; }
+#bootlog { font-size: 10px; color: var(--green-dim); letter-spacing: 0.6px; height: 14px; }
 
 /* Narrow / low-res safety: collapse the side panels rather than overlap. */
 @media (max-width: 1100px) {

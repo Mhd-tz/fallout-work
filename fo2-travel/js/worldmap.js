@@ -47,47 +47,47 @@
    * danger:   0..5, feeds the encounter roll for legs that end here
    */
   var LOCATIONS = [
-    { id: "arroyo",   name: "ARROYO",         kind: "town",  region: "arroyo",  p: px(78, 62),   danger: 0, start: true,
+    { id: "arroyo",   name: "ARROYO",         kind: "town",  region: "arroyo",  p: [133, 96],   danger: 0, start: true,
       marker: "FO2_MRK_Arroyo",   services: ["HEALER", "TRADE"],            desc: "Your tribe's village. Elder is waiting on the G.E.C.K." },
-    { id: "toxic",    name: "TOXIC CAVES",    kind: "cave",  region: "klamath", p: px(112, 40),  danger: 3,
+    { id: "toxic",    name: "TOXIC CAVES",    kind: "cave",  region: "klamath", p: [230, 74],  danger: 3,
       marker: "FO2_MRK_ToxicCaves", services: ["LOOT"],                     desc: "Sludge-flooded cave system. Something big nests in there." },
-    { id: "klamath",  name: "KLAMATH",        kind: "town",  region: "klamath", p: px(186, 56),  danger: 1,
+    { id: "klamath",  name: "KLAMATH",        kind: "town",  region: "klamath", p: [273, 96],  danger: 1,
       marker: "FO2_MRK_Klamath",  services: ["TRADE", "REPAIR", "BAR"],     desc: "Trapper town. Gecko pelts, bad beer, worse rats." },
-    { id: "den",      name: "THE DEN",        kind: "town",  region: "klamath", p: px(206, 112), danger: 2,
+    { id: "den",      name: "THE DEN",        kind: "town",  region: "klamath", p: [339, 192], danger: 2,
       marker: "FO2_MRK_TheDen",   services: ["TRADE", "REPAIR", "CHEM", "GARAGE"], desc: "Slavers and junkies. Smitty's garage sells the Highwayman." },
-    { id: "modoc",    name: "MODOC",          kind: "town",  region: "modoc",   p: px(416, 106), danger: 2,
+    { id: "modoc",    name: "MODOC",          kind: "town",  region: "modoc",   p: [650, 191], danger: 2,
       marker: "FO2_MRK_Modoc",    services: ["TRADE", "BAR", "REPAIR"],     desc: "Farm town at the edge of the flats. Brahmin and bad blood." },
-    { id: "ghost",    name: "GHOST FARM",     kind: "poi",   region: "modoc",   p: px(470, 78),  danger: 2,
+    { id: "ghost",    name: "GHOST FARM",     kind: "poi",   region: "modoc",   p: [680, 165],  danger: 2,
       marker: "FO2_MRK_GhostFarm", services: [],                            desc: "Slag settlement below the fields. Not haunted. Mostly." },
-    { id: "gecko",    name: "GECKO",          kind: "town",  region: "vc",      p: px(641, 64),  danger: 3, rads: true,
+    { id: "gecko",    name: "GECKO",          kind: "town",  region: "vc",      p: [889, 160],  danger: 3, rads: true,
       marker: "FO2_MRK_Gecko",    services: ["TRADE", "REPAIR"],            desc: "Ghoul town around a leaking atomic plant. Rad gear advised." },
-    { id: "vcity",    name: "VAULT CITY",     kind: "town",  region: "vc",      p: px(601, 106), danger: 1,
+    { id: "vcity",    name: "VAULT CITY",     kind: "town",  region: "vc",      p: [857, 225], danger: 1,
       marker: "FO2_MRK_VaultCity", services: ["TRADE", "DOCTOR", "REPAIR"], desc: "Vault 8 grown fat and cruel. Citizenship required." },
-    { id: "redding",  name: "REDDING",        kind: "town",  region: "redding", p: px(291, 196), danger: 2,
+    { id: "redding",  name: "REDDING",        kind: "town",  region: "redding", p: [479, 354], danger: 2,
       marker: "FO2_MRK_Redding",  services: ["TRADE", "BAR", "DOCTOR"],     desc: "Gold mining town caught between Reno and Vault City." },
-    { id: "sad",      name: "S.A.D.",         kind: "base",  region: "reno",    p: px(447, 264), danger: 4,
+    { id: "sad",      name: "S.A.D.",         kind: "base",  region: "reno",    p: [647, 539], danger: 4,
       marker: "FO2_MRK_SAD",      services: [],                             desc: "Sierra Army Depot. Automated defences still online." },
-    { id: "stables",  name: "STABLES",        kind: "poi",   region: "reno",    p: px(431, 296), danger: 3,
+    { id: "stables",  name: "STABLES",        kind: "poi",   region: "reno",    p: [659, 573], danger: 3,
       marker: "FO2_MRK_Stables",  services: [],                             desc: "New Reno's outrider camp. Watch the brahmin." },
-    { id: "reno",     name: "NEW RENO",       kind: "town",  region: "reno",    p: px(456, 320), danger: 3,
+    { id: "reno",     name: "NEW RENO",       kind: "town",  region: "reno",    p: [652, 610], danger: 3,
       marker: "FO2_MRK_NewReno",  services: ["TRADE", "CHEM", "BAR", "DOCTOR", "GARAGE"], desc: "Four families, no law. Best mechanic on the coast." },
-    { id: "golgotha", name: "GOLGOTHA",       kind: "ruin",  region: "reno",    p: px(442, 351), danger: 3,
+    { id: "golgotha", name: "GOLGOTHA",       kind: "ruin",  region: "reno",    p: [647, 645], danger: 3,
       marker: "FO2_MRK_Golgotha", services: [],                             desc: "Reno's boot hill. People get buried here breathing." },
-    { id: "raiders",  name: "RAIDERS",        kind: "base",  region: "hills",   p: px(626, 231), danger: 5,
+    { id: "raiders",  name: "RAIDERS",        kind: "base",  region: "hills",   p: [812, 444], danger: 5,
       marker: "FO2_MRK_Raiders",  services: [],                             desc: "Fortified raider camp. Bishop pays well for its location." },
-    { id: "hills",    name: "BROKEN HILLS",   kind: "town",  region: "hills",   p: px(641, 291), danger: 2, rads: true,
+    { id: "hills",    name: "BROKEN HILLS",   kind: "town",  region: "hills",   p: [820, 581], danger: 2, rads: true,
       marker: "FO2_MRK_BrokenHills", services: ["TRADE", "REPAIR", "DOCTOR"], desc: "Uranium town. Humans, ghouls and mutants, uneasily." },
-    { id: "navarro",  name: "NAVARRO",        kind: "base",  region: "coast",   p: px(72, 416),  danger: 5,
+    { id: "navarro",  name: "NAVARRO",        kind: "base",  region: "coast",   p: [130, 574],  danger: 5,
       marker: "FO2_MRK_Navarro",  services: ["REPAIR"],                     desc: "Enclave refuelling base. Vertibirds. Power armour. Leave." },
-    { id: "sfran",    name: "SAN FRANCISCO",  kind: "town",  region: "coast",   p: px(188, 570), danger: 2,
+    { id: "sfran",    name: "SAN FRANCISCO",  kind: "town",  region: "coast",   p: [339, 871], danger: 2,
       marker: "FO2_MRK_SanFran",  services: ["TRADE", "DOCTOR", "REPAIR", "GARAGE"], desc: "Shi and the Hubologists. Tanker in the bay." },
-    { id: "mbase",    name: "MILITARY BASE",  kind: "ruin",  region: "wastes",  p: px(332, 611), danger: 4, rads: true,
+    { id: "mbase",    name: "MILITARY BASE",  kind: "ruin",  region: "wastes",  p: [483, 937], danger: 4, rads: true,
       marker: "FO2_MRK_MilBase",  services: [],                             desc: "Mariposa. Glowing, half-collapsed, full of teeth." },
-    { id: "v13",      name: "VAULT 13",       kind: "vault", region: "ncr",     p: px(491, 620), danger: 3,
+    { id: "v13",      name: "VAULT 13",       kind: "vault", region: "ncr",     p: [686, 937], danger: 3,
       marker: "FO2_MRK_Vault13",  services: [],                             desc: "The old home vault. Deathclaws answered the door." },
-    { id: "ncr",      name: "N.C.R.",         kind: "town",  region: "ncr",     p: px(601, 622), danger: 1,
+    { id: "ncr",      name: "N.C.R.",         kind: "town",  region: "ncr",     p: [786, 937], danger: 1,
       marker: "FO2_MRK_NCR",      services: ["TRADE", "DOCTOR", "REPAIR", "BAR", "GARAGE"], desc: "New California Republic. Actual laws. Actual police." },
-    { id: "v15",      name: "VAULT 15",       kind: "vault", region: "ncr",     p: px(681, 621), danger: 3,
+    { id: "v15",      name: "VAULT 15",       kind: "vault", region: "ncr",     p: [889, 937], danger: 3,
       marker: "FO2_MRK_Vault15",  services: ["TRADE"],                      desc: "Collapsed vault, squatter town on top. Khans nearby." }
   ];
 
@@ -98,29 +98,29 @@
    * `via` inserts intermediate bend points so routes curve like real roads.
    */
   var ROADS = [
-    { a: "arroyo",  b: "klamath", w: 0.45, via: [px(130, 74)] },
+    { a: "arroyo",  b: "klamath", w: 0.45, via: [[200, 78]] },
     { a: "klamath", b: "toxic",   w: 0.45 },
-    { a: "klamath", b: "den",     w: 0.7,  via: [px(206, 82)] },
-    { a: "den",     b: "modoc",   w: 1.0,  via: [px(290, 128), px(360, 118)] },
-    { a: "den",     b: "redding", w: 0.7,  via: [px(238, 156)] },
+    { a: "klamath", b: "den",     w: 0.7,  via: [[300, 132]] },
+    { a: "den",     b: "modoc",   w: 1.0,  via: [[430, 214], [545, 202]] },
+    { a: "den",     b: "redding", w: 0.7,  via: [[392, 262]] },
     { a: "modoc",   b: "ghost",   w: 0.45 },
-    { a: "modoc",   b: "vcity",   w: 1.0,  via: [px(506, 96)] },
-    { a: "modoc",   b: "redding", w: 0.7,  via: [px(370, 158)] },
+    { a: "modoc",   b: "vcity",   w: 1.0,  via: [[762, 198]] },
+    { a: "modoc",   b: "redding", w: 0.7,  via: [[560, 282]] },
     { a: "vcity",   b: "gecko",   w: 0.7 },
-    { a: "vcity",   b: "hills",   w: 0.7,  via: [px(636, 186)] },
+    { a: "vcity",   b: "hills",   w: 0.7,  via: [[852, 400]] },
     { a: "hills",   b: "raiders", w: 0.45 },
-    { a: "hills",   b: "reno",    w: 0.7,  via: [px(556, 306)] },
-    { a: "redding", b: "reno",    w: 1.0,  via: [px(356, 244), px(410, 288)] },
-    { a: "reno",    b: "sad",     w: 0.45, via: [px(452, 292)] },
+    { a: "hills",   b: "reno",    w: 0.7,  via: [[742, 604]] },
+    { a: "redding", b: "reno",    w: 1.0,  via: [[540, 432], [612, 532]] },
+    { a: "reno",    b: "sad",     w: 0.45, via: [[652, 572]] },
     { a: "reno",    b: "stables", w: 0.45 },
     { a: "reno",    b: "golgotha", w: 0.45 },
-    { a: "reno",    b: "ncr",     w: 1.0,  via: [px(500, 430), px(556, 540)] },
+    { a: "reno",    b: "ncr",     w: 1.0,  via: [[700, 722], [762, 842]] },
     { a: "ncr",     b: "v15",     w: 0.7 },
     { a: "ncr",     b: "v13",     w: 0.7 },
-    { a: "v13",     b: "mbase",   w: 0.45, via: [px(410, 626)] },
-    { a: "mbase",   b: "sfran",   w: 0.7,  via: [px(262, 604)] },
-    { a: "sfran",   b: "navarro", w: 0.45, via: [px(96, 512)] },
-    { a: "navarro", b: "redding", w: 0.45, via: [px(150, 330), px(232, 246)] }
+    { a: "v13",     b: "mbase",   w: 0.45, via: [[582, 942]] },
+    { a: "mbase",   b: "sfran",   w: 0.7,  via: [[402, 902]] },
+    { a: "sfran",   b: "navarro", w: 0.45, via: [[232, 732], [158, 652]] },
+    { a: "navarro", b: "redding", w: 0.45, via: [[232, 482], [342, 412]] }
   ];
 
   /* --- Rivers and lakes ---------------------------------------------------
@@ -129,18 +129,47 @@
    * water has a source and a destination instead of stopping in open desert.
    * terrain.js carves a channel along each centreline and floods it.
    */
-  var RIVERS = [
-    { name: "KLAMATH RIVER", from: "NORTH HIGHLANDS", to: "PACIFIC OCEAN",
-      pts: [[288, 32], [261, 103], [226, 194], [178, 303], [130, 413], [96, 470], [72, 530]] },
-    { name: "SIERRA RUN",    from: "SIERRA SPINE",    to: "GECKO RESERVOIR",
-      pts: [[823, 71], [789, 155], [741, 245], [700, 320], [668, 372], [648, 392]] },
-    { name: "SALT FORK",     from: "SOUTH SIERRA",    to: "SALT FLAT LAKE",
-      pts: [[878, 512], [806, 566], [716, 612], [640, 652], [586, 682], [562, 692]] }
+  function splinePts(ctrl, step) {
+    step = step || 0.08;
+    if (ctrl.length < 2) return ctrl;
+    var ext = [ctrl[0]].concat(ctrl, [ctrl[ctrl.length - 1]]);
+    var out = [];
+    for (var i = 1; i < ext.length - 2; i++) {
+      var p0 = ext[i - 1], p1 = ext[i], p2 = ext[i + 1], p3 = ext[i + 2];
+      for (var t = 0; t < 1; t += step) {
+        var t2 = t * t, t3 = t2 * t;
+        out.push([
+          0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+          0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+        ]);
+      }
+    }
+    out.push(ctrl[ctrl.length - 1]);
+    return out;
+  }
+
+  var RAW_RIVERS = [
+    // The Sacramento runs the length of the Central Valley and empties into
+    // the delta behind San Francisco - the reason the valley roads need
+    // bridges at all.
+    { name: "SACRAMENTO RIVER", from: "NORTHERN RANGES", to: "PACIFIC DELTA",
+      pts: [[728, 116], [702, 170], [672, 226], [636, 282], [598, 334], [572, 392],
+            [550, 452], [530, 512], [510, 572], [488, 632], [465, 690], [440, 748],
+            [415, 800], [386, 834], [355, 862], [324, 880], [295, 892]] },
+    // The San Joaquin drains the southern Sierra into a closed basin, so it
+    // ends in a lake rather than the sea.
+    { name: "SAN JOAQUIN",      from: "SOUTHERN SIERRA", to: "TULE LAKE",
+      pts: [[862, 742], [820, 748], [780, 750], [738, 746], [700, 738],
+            [665, 726], [634, 712], [608, 698], [588, 684], [572, 670]] }
   ];
 
+  var RIVERS = RAW_RIVERS.map(function (r) {
+    return { name: r.name, from: r.from, to: r.to, pts: splinePts(r.pts, 0.12) };
+  });
+
   var LAKES = [
-    { name: "GECKO RESERVOIR", x: 645, z: 392, r: 40 },
-    { name: "SALT FLAT LAKE",  x: 558, z: 697, r: 56 }
+    { name: "TULE LAKE",       x: 560, z: 660, r: 34 },
+    { name: "GECKO RESERVOIR", x: 806, z: 112, r: 26 }
   ];
 
   /* --- Encounter tables ---------------------------------------------------
@@ -174,10 +203,10 @@
 
   /* Radiation / hazard blooms baked into the terrain and the risk model. */
   var HAZARDS = [
-    { x: px(641, 64)[0],  z: px(641, 64)[1],  r: 70,  kind: "rad" },   // Gecko
-    { x: px(332, 611)[0], z: px(332, 611)[1], r: 95,  kind: "rad" },   // Mariposa
-    { x: px(641, 291)[0], z: px(641, 291)[1], r: 55,  kind: "rad" },   // Broken Hills
-    { x: px(112, 40)[0],  z: px(112, 40)[1],  r: 40,  kind: "tox" }    // Toxic Caves
+    { x: 889, z: 160, r: 62, kind: "rad" },   // Gecko's leaking reactor
+    { x: 483, z: 937, r: 88, kind: "rad" },   // Mariposa military base
+    { x: 820, z: 581, r: 50, kind: "rad" },   // Broken Hills uranium
+    { x: 230, z: 74,  r: 38, kind: "tox" }    // Toxic Caves
   ];
 
   var byId = {};

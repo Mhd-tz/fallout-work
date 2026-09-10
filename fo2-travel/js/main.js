@@ -45,10 +45,10 @@
   // colour bled half a pixel into its neighbour and drew a visible lattice
   // across the whole map, which read as "pixelated" far more than the facets.
   var QUALITY_TIERS = [
-    { quads: 14000, seams: false, detail: true  },
-    { quads: 7000,  seams: false, detail: true  },
-    { quads: 3500,  seams: false, detail: false },
-    { quads: 1500,  seams: false, detail: false }
+    { quads: 9600, seams: false, detail: true  },
+    { quads: 4800, seams: false, detail: true  },
+    { quads: 2200, seams: false, detail: false },
+    { quads: 1100, seams: false, detail: false }
   ];
   var quality = { tier: 0, frames: 0, acc: 0, fps: 0, ms: 0, showFps: false, lock: false };
 
@@ -94,6 +94,7 @@
           refreshList();
           HUD.clock();
           HUD.mode("survey");
+          HUD.buildKey();
           HUD.focus(B.focused);
           HUD.toast("NAVCOM ONLINE · " + W.LOCATIONS.length + " SITES ON FILE", "good");
           applyDevFlags();
@@ -168,13 +169,28 @@
     }
     if (q.pin && state.selected) pinAndDrive();
     if (q.drive) {
+      // #at=x,z drops the car anywhere on the map - handy for inspecting a
+      // bridge or a hillside without driving there first. Applied before the
+      // chase camera is placed, or the camera frames where the car used to be.
+      if (typeof q.at === "string") {
+        var ap = q.at.split(",");
+        if (ap.length >= 2) {
+          car.x = parseFloat(ap[0]); car.z = parseFloat(ap[1]);
+          revealAround(car.x, car.z, 240, true);
+        }
+      }
+      if (q.heading !== undefined) car.heading = parseFloat(q.heading) || 0;
+
       setMode("drive");
       var fwd = car.forward();
       cam.yaw = car.heading;
       cam.tx = car.x + fwd[0] * 26;
       cam.tz = car.z + fwd[1] * 26;
-      cam.dist = 150; cam.pitch = 0.62;
+      cam.dist = q.dist ? parseFloat(q.dist) : 150;
+      cam.pitch = q.pitch !== undefined ? parseFloat(q.pitch) : 0.62;
+      snapTween();
       if (q.speed) car.speed = parseFloat(q.speed) || 30;
+      if (q.boost) state.forceBoost = true;   // dev: hold the overcharge open
     }
     if (q.enc) {
       var enc = TR.pickEncounter(car.x, car.z, { night: TR.Clock.isNight() });
@@ -343,7 +359,20 @@
    * ====================================================================== */
   function beginTravel() {
     if (!state.route || !state.selected) return;
+    // Departing again while already under way rebuilt the course from the
+    // last known stop and reset the odometer along it, which snapped the car
+    // back to where it set off. One course at a time.
+    if (state.travel) {
+      HUD.toast(state.travel.dest === state.selected
+        ? "ALREADY EN ROUTE"
+        : "ALREADY EN ROUTE · ABORT FIRST [ESC]", "warn");
+      return;
+    }
     var loc = W.loc(state.selected);
+    if (state.here === loc.id) {
+      HUD.toast("ALREADY AT " + loc.name, "warn");
+      return;
+    }
     if (car.fuel < state.est.fuel) {
       HUD.toast("NOT ENOUGH CELL CHARGE · " + Math.round(state.est.fuel) + "% NEEDED", "warn");
       return;
@@ -359,6 +388,7 @@
     B.requestTravel(loc, state.est, state.route);
     HUD.travelBar(true, loc.name, 0, state.est.minutes, []);
     HUD.refreshPanelRects();
+    if (state.selected) HUD.dossier(loc, state.est, state);
     HUD.toast("PLOTTING COURSE TO " + loc.name);
   }
 
@@ -371,6 +401,9 @@
     HUD.travelBar(false);
     HUD.refreshPanelRects();
     setMode("survey");
+    if (state.selected && state.est) {
+      HUD.dossier(W.loc(state.selected), state.est, state);
+    }
     HUD.toast("TRAVEL ABORTED · " + String(reason || "").toUpperCase(), "warn");
   }
 
@@ -576,14 +609,15 @@
   function stepDrive(dt) {
     if (HUD.encounterOpen()) return;
     var throttle = 0, steer = 0;
+    if (state.forceBoost) throttle += 1;
     if (keys["w"] || keys["arrowup"]) throttle += 1;
     if (keys["s"] || keys["arrowdown"]) throttle -= 1;
     if (keys["a"] || keys["arrowleft"]) steer += 1;
     if (keys["d"] || keys["arrowright"]) steer -= 1;
-    if (keys["shift"] && throttle > 0) throttle = 1.35;
-
     var moved = car.step(dt, {
-      throttle: throttle, steer: steer, handbrake: !!keys[" "]
+      throttle: throttle, steer: steer,
+      boost: !!keys["shift"] || !!state.forceBoost,
+      handbrake: !!keys[" "]
     });
 
     if (car.blocked) HUD.toast("IMPASSABLE TERRAIN", "warn");
@@ -640,6 +674,20 @@
    * MODES / CAMERA
    * ====================================================================== */
   var tween = { on: false, tx: 0, tz: 0, dist: 0 };
+
+  function $id(id) { return document.getElementById(id); }
+
+  /** Collapse a side panel down to its header bar, and back. */
+  function fold(btnId, panelId) {
+    var btn = $id(btnId), panel = $id(panelId);
+    if (!btn || !panel) return;
+    btn.onclick = function () {
+      var shut = panel.className.indexOf("folded") < 0;
+      panel.className = shut ? "panel folded" : "panel";
+      btn.title = shut ? "Expand" : "Collapse";
+      HUD.refreshPanelRects();
+    };
+  }
 
   function setMode(mode) {
     if (state.mode === mode) return;
@@ -737,48 +785,55 @@
   var light = { dir: [0, 1, 0], amb: 0.4, intensity: 1, tint: [1, 1, 1] };
   var haze = [120, 122, 104];
 
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+  /**
+   * A continuous solar model. Elevation is a sine over the whole 24h, so the
+   * sun rises, crosses and sets without any switch between a "day" branch and
+   * a "night" branch - the hard cut at 06:00/20:00 was what made the cycle
+   * snap. Everything downstream reads `light.dayness` (0 night, 1 full day)
+   * and interpolates.
+   */
   function updateLight() {
     var h = TR.Clock.hour();
-    // Day runs 06:00-20:00; the sun tracks east to west across that window.
-    var t = (h - 6) / 14;
-    var day = t >= 0 && t <= 1;
-    var az, el;
 
-    if (day) {
-      az = -Math.PI * 0.5 + t * Math.PI;      // sunrise east -> sunset west
-      el = Math.sin(t * Math.PI) * 1.15 + 0.06;
-    } else {
-      // Moon: opposite side of the sky, low and cold.
-      var nt = h < 6 ? (h + 4) / 10 : (h - 20 + 4) / 10;
-      az = Math.PI * 0.5 - nt * Math.PI;
-      el = 0.55;
-    }
+    var elev = Math.sin((h - 6) / 12 * Math.PI);          // +1 noon, -1 midnight
+    var az = -Math.PI * 0.5 + ((h - 6) / 12) * Math.PI;   // east at dawn, west at dusk
 
-    var ce = Math.cos(Math.atan(el));
-    var dx = Math.sin(az) * ce, dy = Math.sin(Math.atan(el)) + 0.25, dz = -Math.cos(az) * ce * 0.75;
+    // Twilight band either side of the horizon rather than an instant flip.
+    var dayness = clamp01((elev + 0.14) / 0.34);
+    light.dayness = dayness;
+
+    var lel, laz;
+    if (elev > -0.03) { lel = Math.max(0.07, elev); laz = az; }
+    else { lel = Math.max(0.30, -elev * 0.65); laz = az + Math.PI; }  // moon
+
+    var pitch = Math.atan(lel);
+    var ce = Math.cos(pitch);
+    var dx = Math.sin(laz) * ce, dy = Math.sin(pitch) + 0.22, dz = -Math.cos(laz) * ce * 0.75;
     var L = Math.hypot(dx, dy, dz) || 1;
     light.dir[0] = dx / L; light.dir[1] = dy / L; light.dir[2] = dz / L;
 
-    // Warm and bright at midday, red at the edges of the day, blue at night.
-    if (day) {
-      var noon = 1 - Math.abs(t - 0.5) * 2;          // 0 at dawn/dusk, 1 at noon
-      var golden = Math.pow(1 - noon, 2);
-      light.amb = 0.34 + noon * 0.10;
-      light.intensity = 0.72 + noon * 0.5;
-      light.tint[0] = 1.0 + golden * 0.22;
-      light.tint[1] = 1.0 - golden * 0.06;
-      light.tint[2] = 1.0 - golden * 0.30;
-      haze[0] = 120 + golden * 60; haze[1] = 122 - golden * 18; haze[2] = 104 - golden * 40;
-    } else {
-      light.amb = 0.22;
-      light.intensity = 0.42;
-      light.tint[0] = 0.62; light.tint[1] = 0.74; light.tint[2] = 1.05;
-      haze[0] = 18; haze[1] = 26; haze[2] = 42;
-    }
+    // Warm low sun near the horizon, cold moonlight at the bottom of the arc.
+    var golden = clamp01(1 - Math.abs(elev) / 0.34) * dayness;
+
+    light.amb = 0.20 + dayness * (0.16 + Math.max(0, elev) * 0.08);
+    light.intensity = 0.30 + dayness * 0.95;
+
+    var nt = [0.58, 0.72, 1.10];                          // moonlight
+    light.tint[0] = nt[0] + (1 - nt[0]) * dayness + golden * 0.26;
+    light.tint[1] = nt[1] + (1 - nt[1]) * dayness - golden * 0.05;
+    light.tint[2] = nt[2] + (1 - nt[2]) * dayness - golden * 0.34;
+
+    var nh = [16, 24, 40], dh = [120, 122, 104];
+    haze[0] = nh[0] + (dh[0] - nh[0]) * dayness + golden * 66;
+    haze[1] = nh[1] + (dh[1] - nh[1]) * dayness - golden * 16;
+    haze[2] = nh[2] + (dh[2] - nh[2]) * dayness - golden * 34;
+
     if (state.weather === "storm") {
       light.intensity *= 0.55;
       light.amb += 0.05;
-      light.tint[0] *= 0.86; light.tint[1] *= 0.92; light.tint[2] *= 1.0;
+      light.tint[0] *= 0.86; light.tint[1] *= 0.92;
     }
   }
 
@@ -787,21 +842,78 @@
    * the top of the screen at survey pitch, so this is a full-canvas wash
    * rather than a band.
    */
-  var skyCache = { w: 0, h: 0, night: null, weather: null, grad: null };
+  /* --- dynamic stars & skybox --------------------------------------------- */
+  var stars = [];
+  function getStars() {
+    if (stars.length) return stars;
+    for (var i = 0; i < 160; i++) {
+      stars.push({
+        x: ((i * 73.13) % 1),
+        y: ((i * 37.49) % 1),
+        size: 0.8 + ((i * 17) % 5) * 0.35,
+        twinkle: 2.2 + ((i * 23) % 7),
+        phase: (i * 1.618) % 6.28,
+        hue: (i % 7 === 0) ? "#a6d2ff" : (i % 11 === 0) ? "#ffe6ba" : "#ffffff"
+      });
+    }
+    return stars;
+  }
+
+  /**
+   * Backdrop the terrain silhouettes against. Dynamic time-of-day atmospheric
+   * wash that matches the day/night progression.
+   */
+  var skyCache = { w: 0, h: 0, night: null, weather: null, hour: null, grad: null };
+  // Sky keyframes through the day. paintSky blends the two nearest, so dawn
+  // and dusk arrive gradually instead of snapping between presets.
+  var SKY_KEYS = [
+    { h: 0.0,  c: [[3, 6, 12],   [7, 16, 26],  [16, 26, 38]] },
+    { h: 4.5,  c: [[5, 10, 20],  [13, 22, 38], [29, 36, 54]] },
+    { h: 6.2,  c: [[17, 20, 40], [44, 26, 46], [74, 42, 40]] },
+    { h: 7.8,  c: [[22, 32, 47], [42, 51, 64], [90, 74, 52]] },
+    { h: 12.0, c: [[22, 40, 60], [37, 56, 74], [74, 81, 72]] },
+    { h: 16.5, c: [[24, 38, 54], [42, 53, 66], [81, 79, 66]] },
+    { h: 18.6, c: [[20, 21, 38], [58, 26, 34], [94, 48, 32]] },
+    { h: 20.2, c: [[11, 16, 32], [26, 22, 38], [44, 30, 38]] },
+    { h: 24.0, c: [[3, 6, 12],   [7, 16, 26],  [16, 26, 38]] }
+  ];
+
+  function rgbStr(c) { return "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")"; }
+
+  function skyAt(hour) {
+    var a = SKY_KEYS[0], b = SKY_KEYS[SKY_KEYS.length - 1];
+    for (var i = 1; i < SKY_KEYS.length; i++) {
+      if (hour <= SKY_KEYS[i].h) { a = SKY_KEYS[i - 1]; b = SKY_KEYS[i]; break; }
+    }
+    var t = (hour - a.h) / ((b.h - a.h) || 1);
+    var out = [];
+    for (var k = 0; k < 3; k++) {
+      out.push([
+        a.c[k][0] + (b.c[k][0] - a.c[k][0]) * t,
+        a.c[k][1] + (b.c[k][1] - a.c[k][1]) * t,
+        a.c[k][2] + (b.c[k][2] - a.c[k][2]) * t
+      ]);
+    }
+    return out;
+  }
+
   function paintSky() {
     var w = cam.viewport.w, h = cam.viewport.h;
-    var night = TR.Clock.isNight();
-    if (skyCache.w !== w || skyCache.h !== h || skyCache.night !== night ||
-        skyCache.weather !== state.weather) {
-      var g = ctx.createLinearGradient(0, 0, 0, h);
-      if (night) {
-        g.addColorStop(0, "#04060a"); g.addColorStop(0.55, "#080d14"); g.addColorStop(1, "#101a24");
-      } else if (state.weather === "storm") {
-        g.addColorStop(0, "#0a0e12"); g.addColorStop(0.55, "#151d24"); g.addColorStop(1, "#26313a");
-      } else {
-        g.addColorStop(0, "#080b0e"); g.addColorStop(0.5, "#131a1c"); g.addColorStop(1, "#3a3d33");
+    var hour = TR.Clock.hour();
+    var hBucket = Math.round(hour * 6) / 6;   // refresh every ten minutes
+    if (skyCache.w !== w || skyCache.h !== h ||
+        skyCache.weather !== state.weather || skyCache.hour !== hBucket) {
+      var c = skyAt(hour);
+      if (state.weather === "storm") {
+        for (var k = 0; k < 3; k++) {
+          c[k][0] = c[k][0] * 0.55 + 16; c[k][1] = c[k][1] * 0.6 + 20; c[k][2] = c[k][2] * 0.65 + 26;
+        }
       }
-      skyCache = { w: w, h: h, night: night, weather: state.weather, grad: g };
+      var g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, rgbStr(c[0]));
+      g.addColorStop(0.5, rgbStr(c[1]));
+      g.addColorStop(1, rgbStr(c[2]));
+      skyCache = { w: w, h: h, weather: state.weather, hour: hBucket, grad: g };
     }
     ctx.fillStyle = skyCache.grad;
     ctx.fillRect(0, 0, w, h);
@@ -833,7 +945,7 @@
   function drawGrain() {
     if (!grainPat) grainPat = makeGrain();
     ctx.save();
-    ctx.globalAlpha = 0.075;
+    ctx.globalAlpha = 0.065;
     ctx.fillStyle = grainPat;
     ctx.fillRect(0, 0, cam.viewport.w, cam.viewport.h);
     ctx.restore();
@@ -841,30 +953,157 @@
 
   function drawSky(horizon) {
     var w = cam.viewport.w, h = cam.viewport.h;
+    var hour = TR.Clock.hour();
     var night = TR.Clock.isNight();
-    var top = night ? "#070b12" : "#2a3240";
-    var bot = night ? "#182231" : "#8a8a76";
-    if (state.weather === "storm") { top = night ? "#05070c" : "#1e242c"; bot = night ? "#101720" : "#4d5560"; }
 
+    // 1. Sky Dome Zenith-to-Horizon Gradient
     var g = ctx.createLinearGradient(0, 0, 0, Math.max(2, horizon));
-    g.addColorStop(0, top);
-    g.addColorStop(1, bot);
+    if (night) {
+      g.addColorStop(0, "#03060c");
+      g.addColorStop(0.5, "#0a1322");
+      g.addColorStop(1, "#152234");
+    } else if (state.weather === "storm") {
+      g.addColorStop(0, "#0c1116");
+      g.addColorStop(0.5, "#18212a");
+      g.addColorStop(1, "#36424e");
+    } else if (hour >= 4.5 && hour < 7.5) {
+      // Sunrise / Dawn
+      g.addColorStop(0, "#0c142b");
+      g.addColorStop(0.4, "#2e1a38");
+      g.addColorStop(0.75, "#b54432");
+      g.addColorStop(1, "#fca24e");
+    } else if (hour >= 17.0 && hour <= 20.0) {
+      // Sunset / Golden Hour
+      g.addColorStop(0, "#0d162e");
+      g.addColorStop(0.4, "#481c32");
+      g.addColorStop(0.75, "#cc4d28");
+      g.addColorStop(1, "#fca842");
+    } else {
+      // Crisp Wasteland Daytime
+      g.addColorStop(0, "#193558");
+      g.addColorStop(0.45, "#3b6082");
+      g.addColorStop(0.85, "#809bb0");
+      g.addColorStop(1, "#c5c7b4");
+    }
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, Math.max(0, horizon));
 
+    // 2. Night Cosmic Features: Starfield & Wasteland Aurora
     if (night && state.weather !== "storm") {
-      ctx.fillStyle = "rgba(210,225,255,0.55)";
-      for (var i = 0; i < 60; i++) {
-        var sx = ((i * 137.5) % w), sy = ((i * 53.7) % Math.max(1, horizon * 0.9));
-        ctx.fillRect(sx, sy, 1, 1);
+      // Shimmering Ionized Radioactive Aurora / Airglow
+      var flowT = worldTime * 0.4;
+      var aurGrad = ctx.createLinearGradient(0, 0, w, 0);
+      aurGrad.addColorStop(0, "rgba(40, 180, 120, 0)");
+      aurGrad.addColorStop(0.3, "rgba(50, 220, 150, 0.08)");
+      aurGrad.addColorStop(0.6, "rgba(40, 160, 210, 0.09)");
+      aurGrad.addColorStop(1, "rgba(50, 220, 150, 0)");
+      ctx.fillStyle = aurGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, horizon * 0.45);
+      for (var ax = 0; ax <= w; ax += 80) {
+        var ay = horizon * 0.45 + Math.sin(ax * 0.008 + flowT) * 26 + Math.cos(ax * 0.015 - flowT * 0.5) * 14;
+        ctx.lineTo(ax, ay);
+      }
+      ctx.lineTo(w, 0); ctx.lineTo(0, 0); ctx.closePath();
+      ctx.fill();
+
+      // Twinkling Starfield
+      var st = getStars();
+      for (var sIdx = 0; sIdx < st.length; sIdx++) {
+        var star = st[sIdx];
+        var sx = star.x * w;
+        var sy = star.y * Math.max(1, horizon - 8);
+        var tw = 0.5 + 0.5 * Math.sin(worldTime * star.twinkle + star.phase);
+        ctx.fillStyle = star.hue;
+        ctx.globalAlpha = 0.35 + 0.65 * tw;
+        ctx.fillRect(sx, sy, star.size, star.size);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 3. 3D Celestial Body (Sun or Moon)
+    var sunDist = 5000;
+    var sunWx = cam.tx - light.dir[0] * sunDist;
+    var sunWy = cam.ty + Math.max(200, light.dir[1] * sunDist);
+    var sunWz = cam.tz - light.dir[2] * sunDist;
+    var sunSp = cam.project(sunWx, sunWy, sunWz, {});
+
+    if (sunSp && sunSp.w > 0 && sunSp.x > -150 && sunSp.x < w + 150 && sunSp.y < horizon + 80) {
+      if (night) {
+        // Glowing Moon
+        var mR = 14;
+        var mHalo = ctx.createRadialGradient(sunSp.x, sunSp.y, mR * 0.5, sunSp.x, sunSp.y, mR * 4.5);
+        mHalo.addColorStop(0, "rgba(195, 220, 255, 0.45)");
+        mHalo.addColorStop(0.5, "rgba(160, 195, 240, 0.15)");
+        mHalo.addColorStop(1, "rgba(160, 195, 240, 0)");
+        ctx.fillStyle = mHalo;
+        ctx.beginPath(); ctx.arc(sunSp.x, sunSp.y, mR * 4.5, 0, 6.2832); ctx.fill();
+
+        // Moon disc
+        ctx.fillStyle = "#e6f0ff";
+        ctx.beginPath(); ctx.arc(sunSp.x, sunSp.y, mR, 0, 6.2832); ctx.fill();
+
+        // Maria / crater texture
+        ctx.fillStyle = "rgba(110, 135, 165, 0.32)";
+        ctx.beginPath();
+        ctx.arc(sunSp.x - 3, sunSp.y - 2, 4.5, 0, 6.2832);
+        ctx.arc(sunSp.x + 4, sunSp.y + 3, 3.5, 0, 6.2832);
+        ctx.arc(sunSp.x - 2, sunSp.y + 5, 2.5, 0, 6.2832);
+        ctx.fill();
+      } else if (state.weather !== "storm") {
+        // Radiant Sun
+        var sR = (hour < 7.5 || hour > 17) ? 19 : 15;
+        var sHalo = ctx.createRadialGradient(sunSp.x, sunSp.y, sR * 0.4, sunSp.x, sunSp.y, sR * 6.5);
+        var haloCol = (hour < 7.5 || hour > 17) ? "rgba(255, 165, 80," : "rgba(255, 240, 185,";
+        sHalo.addColorStop(0, haloCol + "0.65)");
+        sHalo.addColorStop(0.3, haloCol + "0.28)");
+        sHalo.addColorStop(1, haloCol + "0)");
+        ctx.fillStyle = sHalo;
+        ctx.beginPath(); ctx.arc(sunSp.x, sunSp.y, sR * 6.5, 0, 6.2832); ctx.fill();
+
+        // Sun disc
+        ctx.fillStyle = (hour < 7.5 || hour > 17) ? "#fff0d0" : "#ffffff";
+        ctx.beginPath(); ctx.arc(sunSp.x, sunSp.y, sR, 0, 6.2832); ctx.fill();
+
+        // Subtle solar flare rays
+        ctx.strokeStyle = haloCol + "0.22)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (var ray = 0; ray < 8; ray++) {
+          var rAng = ray * (Math.PI / 4) + worldTime * 0.05;
+          ctx.moveTo(sunSp.x + Math.cos(rAng) * (sR + 4), sunSp.y + Math.sin(rAng) * (sR + 4));
+          ctx.lineTo(sunSp.x + Math.cos(rAng) * (sR * 3.5), sunSp.y + Math.sin(rAng) * (sR * 3.5));
+        }
+        ctx.stroke();
       }
     }
-    // Haze band that hides the texture's far edge.
-    var hz = ctx.createLinearGradient(0, horizon - 2, 0, horizon + h * 0.16);
-    hz.addColorStop(0, night ? "rgba(24,34,49,0.95)" : "rgba(138,138,118,0.9)");
+
+    // 4. Distant Mountain Silhouettes along the Horizon
+    var mtnCol = night ? "rgba(12, 18, 28, 0.92)"
+               : (state.weather === "storm") ? "rgba(35, 45, 55, 0.9)"
+               : (hour < 7.5 || hour > 17) ? "rgba(75, 40, 48, 0.85)"
+               : "rgba(105, 112, 105, 0.75)";
+    ctx.fillStyle = mtnCol;
+    ctx.beginPath();
+    ctx.moveTo(0, horizon + 2);
+    for (var mx = 0; mx <= w; mx += 35) {
+      var mh = Math.sin(mx * 0.009 + 1.2) * 14 + Math.sin(mx * 0.024 + 4.1) * 7 + Math.sin(mx * 0.055) * 3;
+      ctx.lineTo(mx, horizon - Math.max(0, mh));
+    }
+    ctx.lineTo(w, horizon + 4); ctx.lineTo(0, horizon + 4); ctx.closePath();
+    ctx.fill();
+
+    // 5. Atmospheric Horizon Haze
+    var hz = ctx.createLinearGradient(0, horizon - 3, 0, horizon + h * 0.18);
+    var hzCol = night ? "rgba(21, 34, 52,"
+              : (state.weather === "storm") ? "rgba(54, 66, 78,"
+              : (hour < 7.5 || hour > 17) ? "rgba(220, 130, 80,"
+              : "rgba(197, 199, 180,";
+    hz.addColorStop(0, hzCol + "0.95)");
+    hz.addColorStop(0.3, hzCol + "0.60)");
     hz.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = hz;
-    ctx.fillRect(0, horizon - 2, w, h * 0.16 + 2);
+    ctx.fillRect(0, horizon - 3, w, h * 0.18 + 3);
   }
 
   /**
@@ -893,9 +1132,7 @@
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Rivers: the water body itself is part of the terrain mesh, so what is
-    // drawn here is the flow - a highlight down the centreline plus dashes
-    // marching downstream, which is what makes it read as moving.
+    // Multi-layered organic flowing river system
     var flow = (global.performance ? performance.now() : Date.now()) * 0.001;
     W.RIVERS.forEach(function (riv) {
       var pts = riv.pts || riv;
@@ -905,73 +1142,283 @@
         if (!T.isDiscovered(wx, wz)) { cur = null; continue; }
         var wl = T.waterLevelAt(wx, wz);
         var wy = wl === null ? T.reliefAt(wx, wz) : T.hToRelief(wl);
-        var sp = cam.project(wx, wy + 0.5, wz, {});
+        var sp = cam.project(wx, wy + 0.6, wz, {});
         if (!sp || sp.x < -400 || sp.x > vwid + 400 || sp.y < -400 || sp.y > vhei + 400) {
           cur = null; continue;
         }
         if (!cur) { cur = []; runs.push(cur); }
         cur.push(sp);
       }
-      var wide = Math.max(2, 2600 / cam.dist);
+      var wide = Math.max(5.5, 4800 / cam.dist);
       runs.forEach(function (run) {
         if (run.length < 2) return;
+
+        // Layer 1: Silt / wet sand riverbanks
         ctx.setLineDash([]);
-        ctx.strokeStyle = "rgba(96,158,180,0.42)";
-        ctx.lineWidth = wide;
+        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(16, 28, 38, 0.70)" : "rgba(80, 72, 50, 0.55)";
+        ctx.lineWidth = wide * 1.9;
         strokePts(run);
-        ctx.strokeStyle = "rgba(158,214,232,0.5)";
-        ctx.lineWidth = Math.max(0.9, wide * 0.30);
+
+        // Layer 2: Deep channel bed
+        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(10, 32, 52, 0.90)" : "rgba(20, 60, 74, 0.88)";
+        ctx.lineWidth = wide * 1.3;
         strokePts(run);
-        // Marching highlights, drifting from source toward the mouth.
-        ctx.strokeStyle = "rgba(226,246,255,0.55)";
-        ctx.lineWidth = Math.max(0.8, wide * 0.22);
-        ctx.setLineDash([wide * 1.6, wide * 4.2]);
-        ctx.lineDashOffset = -flow * wide * 5;
+
+        // Layer 3: Vibrant water surface
+        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(24, 75, 110, 0.85)" : "rgba(38, 120, 145, 0.82)";
+        ctx.lineWidth = wide * 0.85;
         strokePts(run);
+
+        // Layer 4: Marching downstream ripples
+        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(130, 195, 235, 0.45)" : "rgba(195, 235, 252, 0.58)";
+        ctx.lineWidth = Math.max(1.1, wide * 0.32);
+        ctx.setLineDash([wide * 2.2, wide * 3.6]);
+        ctx.lineDashOffset = -flow * wide * 4.2;
+        strokePts(run);
+
+        // Layer 5: Sparkling foam & flow glints
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.68)";
+        ctx.lineWidth = Math.max(0.8, wide * 0.16);
         ctx.setLineDash([wide * 0.7, wide * 6.5]);
-        ctx.lineDashOffset = -flow * wide * 3.1 + wide * 2;
-        ctx.strokeStyle = "rgba(226,246,255,0.32)";
+        ctx.lineDashOffset = -flow * wide * 2.5 + wide * 1.8;
         strokePts(run);
         ctx.setLineDash([]);
       });
     });
 
-    // Lakes get a slow shimmer so they are not dead mirrors.
+    // Lakes with multi-tier shorelines & shimmers
     W.LAKES.forEach(function (lk) {
       if (!T.isDiscovered(lk.x, lk.z)) return;
       var wl = T.waterLevelAt(lk.x, lk.z);
       if (wl === null) return;
       var ly = T.hToRelief(wl) + 0.5;
-      for (var b = 0; b < 3; b++) {
-        var rr = lk.r * (0.32 + b * 0.24) + Math.sin(flow * 0.7 + b) * 2.2;
-        ctx.strokeStyle = "rgba(196,232,246," + (0.16 - b * 0.04).toFixed(3) + ")";
-        ctx.lineWidth = Math.max(1, 900 / cam.dist);
-        R3.groundCircle(ctx, cam, lk.x, lk.z, rr, 26, ly);
+
+      // Lake shore sand ring
+      ctx.strokeStyle = TR.Clock.isNight() ? "rgba(20, 32, 42, 0.6)" : "rgba(165, 145, 105, 0.45)";
+      ctx.lineWidth = Math.max(2, 1600 / cam.dist);
+      R3.groundCircle(ctx, cam, lk.x, lk.z, lk.r * 1.02, 32, ly);
+      ctx.stroke();
+
+      for (var b = 0; b < 4; b++) {
+        var rr = lk.r * (0.28 + b * 0.22) + Math.sin(flow * 0.8 + b * 1.2) * 2.5;
+        var alpha = (0.22 - b * 0.04);
+        ctx.strokeStyle = TR.Clock.isNight()
+          ? "rgba(110, 180, 230, " + alpha.toFixed(3) + ")"
+          : "rgba(180, 230, 250, " + alpha.toFixed(3) + ")";
+        ctx.lineWidth = Math.max(1, 1100 / cam.dist);
+        R3.groundCircle(ctx, cam, lk.x, lk.z, rr, 30, ly);
         ctx.stroke();
       }
     });
 
+    // Embankments first: the road ribbon then paints itself up and over them,
+    // because surfaceAt() already knows the deck skirt is there.
+    global.PROPS.drawRamps(ctx, cam, light);
     if (!state.showRoads) return;
-    var wide = Math.max(1.6, 1500 / cam.dist);
+    drawRoads();
+  }
+
+  /* =========================================================================
+   * ROADS
+   *
+   * Drawn as a ribbon of ground quads in WORLD space, not as a screen-space
+   * stroke. A stroke has a constant pixel width, so the road stayed the same
+   * thin line however close the camera got, and its dash pattern was measured
+   * in screen pixels - which is why the markings slid along the road as you
+   * drove. Every dimension below is in world units and projected, so the
+   * surface is exactly the width the driving model reads off the road mask
+   * and the markings stay nailed to the ground.
+   * ====================================================================== */
+  var roadBuf = [];
+
+  /** Offset a polyline sideways by `h` world units, with mitred joins. */
+  function ribbon(pts, h, out) {
+    out.length = 0;
+    for (var i = 0; i < pts.length; i++) {
+      var p = pts[i];
+      var a = pts[i > 0 ? i - 1 : 0], b = pts[i < pts.length - 1 ? i + 1 : i];
+      var dx = b[0] - a[0], dz = b[1] - a[1];
+      var l = Math.sqrt(dx * dx + dz * dz) || 1;
+      out.push([p[0] - (dz / l) * h, p[1] + (dx / l) * h]);
+    }
+    return out;
+  }
+
+  /** World point -> screen, sitting a hair above the surface. */
+  function onGround(x, z, lift) {
+    return cam.project(x, T.surfaceAt(x, z) + lift, z, {});
+  }
+
+  function fillStrip(L, R, style) {
+    ctx.fillStyle = style;
+    for (var i = 1; i < L.length; i++) {
+      var a = L[i - 1], b = L[i], c = R[i], d = R[i - 1];
+      if (!a || !b || !c || !d) continue;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(d.x, d.y);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /** Project one offset polyline, dropping anything unsurveyed or off screen. */
+  function projectOffset(pts, h, lift, keep) {
+    var off = ribbon(pts, h, roadBuf);
+    var out = [];
+    for (var i = 0; i < off.length; i++) {
+      var wx = off[i][0], wz = off[i][1];
+      if (!keep[i]) { out.push(null); continue; }
+      out.push(onGround(wx, wz, lift));
+    }
+    return out;
+  }
+
+  function drawRoads() {
+    var vwid = cam.viewport.w, vhei = cam.viewport.h;
+    var day = light.dayness === undefined ? 1 : light.dayness;
+    // Asphalt in daylight, near-black at night, with the shoulder a shade
+    // lighter so the edge of the carriageway reads.
+    var deck = "rgb(" + Math.round(30 + day * 44) + "," +
+                        Math.round(27 + day * 39) + "," +
+                        Math.round(25 + day * 33) + ")";
+    var shoulder = "rgb(" + Math.round(36 + day * 74) + "," +
+                            Math.round(32 + day * 64) + "," +
+                            Math.round(26 + day * 46) + ")";
+    var paint = "rgba(242,220,158," + (0.34 + day * 0.52).toFixed(2) + ")";
+
     W.ROADS.forEach(function (r) {
-      var runs = drapedSegments(T.roadPoints(r));
-      runs.forEach(function (run) {
-        if (run.length < 2) return;
-        ctx.setLineDash([]);
-        ctx.strokeStyle = "rgba(26,21,16,0.8)";
-        ctx.lineWidth = wide * (0.9 + r.w * 1.1);
-        strokePts(run);
+      var pts = T.roadPoints(r);
+      var hw = T.roadHalfWidth(r);
+
+      // Which vertices are drawable at all: surveyed, on screen, in front.
+      var keep = [], anyKeep = false, px = 0;
+      for (var i = 0; i < pts.length; i++) {
+        var ok = T.isDiscovered(pts[i][0], pts[i][1]);
+        if (ok) {
+          var sp = onGround(pts[i][0], pts[i][1], 0.35);
+          ok = !!sp && sp.x > -600 && sp.x < vwid + 600 &&
+                       sp.y > -600 && sp.y < vhei + 600;
+          if (ok) px = Math.max(px, sp.scale * hw * 2);
+        }
+        keep[i] = ok;
+        anyKeep = anyKeep || ok;
+      }
+      if (!anyKeep) return;
+
+      // Two readings of the same road. Close up it is tarmac; pulled back to
+      // survey the continent it is a line on a chart, because a 4px ribbon of
+      // grey asphalt tells you nothing about where the roads go. They cross
+      // fade over a narrow band of on-screen width so zooming is not a jump.
+      var k = Math.max(0, Math.min(1, (px - 13) / 11));
+
+      if (k < 1) {
+        var thin = [];
+        for (var t = 0; t < pts.length; t++) {
+          thin.push(keep[t] ? onGround(pts[t][0], pts[t][1], 0.6) : null);
+        }
+        ctx.globalAlpha = 1 - k;
+        ctx.lineCap = ctx.lineJoin = "round";
+        ctx.strokeStyle = "rgba(20,17,14,0.85)";
+        ctx.lineWidth = Math.max(3, px * 0.85 + 1.8);
+        strokeGaps(thin);
         ctx.strokeStyle = r.w >= 0.9 ? "rgba(232,152,72,0.95)"
-                        : r.w >= 0.6 ? "rgba(200,134,66,0.85)"
-                                     : "rgba(158,124,76,0.7)";
-        ctx.lineWidth = wide * (0.32 + r.w * 0.55);
-        ctx.setLineDash(r.w >= 0.9 ? [wide * 3, wide * 1.7]
-                      : r.w >= 0.6 ? [wide * 2.2, wide * 1.9]
-                                   : [wide * 0.9, wide * 2.2]);
-        strokePts(run);
-        ctx.setLineDash([]);
-      });
+                        : r.w >= 0.6 ? "rgba(200,134,66,0.88)"
+                                     : "rgba(158,124,76,0.75)";
+        ctx.lineWidth = Math.max(1.4, px * 0.42);
+        strokeGaps(thin);
+        ctx.globalAlpha = 1;
+      }
+      if (k <= 0) return;
+
+      ctx.globalAlpha = k;
+      // Shoulder, then carriageway.
+      fillStrip(projectOffset(pts, -hw * 1.34, 0.28, keep),
+                projectOffset(pts,  hw * 1.34, 0.28, keep), shoulder);
+      fillStrip(projectOffset(pts, -hw, 0.42, keep),
+                projectOffset(pts,  hw, 0.42, keep), deck);
+
+      // Edge lines, then the centre line. Both are real geometry, so they
+      // stay put on the tarmac instead of crawling with the camera.
+      var edge = Math.max(0.34, hw * 0.075);
+      if (px > 26) {
+        fillStrip(projectOffset(pts, -hw * 0.86 - edge, 0.5, keep),
+                  projectOffset(pts, -hw * 0.86 + edge, 0.5, keep), paint);
+        fillStrip(projectOffset(pts,  hw * 0.86 - edge, 0.5, keep),
+                  projectOffset(pts,  hw * 0.86 + edge, 0.5, keep), paint);
+      }
+      if (px > 34 && r.w >= 0.6) centreLine(pts, keep, edge, paint, r.w >= 0.9);
+      ctx.globalAlpha = 1;
     });
+  }
+
+  /** Stroke a projected polyline that may contain null gaps. */
+  function strokeGaps(pts) {
+    ctx.beginPath();
+    var pen = false;
+    for (var i = 0; i < pts.length; i++) {
+      if (!pts[i]) { pen = false; continue; }
+      if (!pen) { ctx.moveTo(pts[i].x, pts[i].y); pen = true; }
+      else ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    ctx.stroke();
+  }
+
+  /**
+   * Dashes measured in world units along the centre of the road, emitted as
+   * their own little quads. A solid double line marks a highway.
+   */
+  function centreLine(pts, keep, edge, paint, solid) {
+    if (solid) {
+      fillStrip(projectOffset(pts, -edge * 2.6, 0.55, keep),
+                projectOffset(pts, -edge * 0.6, 0.55, keep), paint);
+      fillStrip(projectOffset(pts,  edge * 0.6, 0.55, keep),
+                projectOffset(pts,  edge * 2.6, 0.55, keep), paint);
+      return;
+    }
+    var DASH = 7, GAP = 9;
+    ctx.fillStyle = paint;
+    var s = 0;
+    for (var i = 1; i < pts.length; i++) {
+      if (!keep[i] || !keep[i - 1]) {
+        s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+        continue;
+      }
+      var ax = pts[i - 1][0], az = pts[i - 1][1];
+      var dx = pts[i][0] - ax, dz = pts[i][1] - az;
+      var len = Math.hypot(dx, dz);
+      if (len < 1e-4) continue;
+      var ux = dx / len, uz = dz / len, nx = -uz, nz = ux;
+      // Walk this segment in world units, painting wherever the cycle is on.
+      var t = 0;
+      while (t < len) {
+        var phase = (s + t) % (DASH + GAP);
+        if (phase < DASH) {
+          var run = Math.min(len - t, DASH - phase);
+          var x0 = ax + ux * t, z0 = az + uz * t;
+          var x1 = ax + ux * (t + run), z1 = az + uz * (t + run);
+          var q = [
+            onGround(x0 + nx * edge, z0 + nz * edge, 0.55),
+            onGround(x1 + nx * edge, z1 + nz * edge, 0.55),
+            onGround(x1 - nx * edge, z1 - nz * edge, 0.55),
+            onGround(x0 - nx * edge, z0 - nz * edge, 0.55)
+          ];
+          if (q[0] && q[1] && q[2] && q[3]) {
+            ctx.beginPath();
+            ctx.moveTo(q[0].x, q[0].y);
+            for (var v = 1; v < 4; v++) ctx.lineTo(q[v].x, q[v].y);
+            ctx.closePath();
+            ctx.fill();
+          }
+          t += run;
+        } else {
+          t += Math.min(len - t, DASH + GAP - phase);
+        }
+      }
+      s += len;
+    }
   }
 
   function drawRoute() {
@@ -1165,6 +1612,67 @@
         pitch: car.pitch, roll: car.roll, scale: car.scale },
       { light: light });
 
+    // Atomic Micro-Fusion Cell (MFC) reactor pulse glow on the trunk
+    var cf = car.forward();
+    var rearWx = car.x - cf[0] * 5.0, rearWz = car.z - cf[1] * 5.0;
+    var rearSp = cam.project(rearWx, relief + 3.2, rearWz, {});
+    if (rearSp && rearSp.w > 0) {
+      var pulse = 0.72 + 0.28 * Math.sin(worldTime * 8.5);
+      var rxGlow = ctx.createRadialGradient(rearSp.x, rearSp.y, 1, rearSp.x, rearSp.y, Math.max(6, 16 * rearSp.scale * 0.035));
+      rxGlow.addColorStop(0, "rgba(80, 225, 255, " + (0.75 * pulse).toFixed(2) + ")");
+      rxGlow.addColorStop(0.45, "rgba(40, 130, 240, " + (0.35 * pulse).toFixed(2) + ")");
+      rxGlow.addColorStop(1, "rgba(20, 80, 220, 0)");
+      ctx.fillStyle = rxGlow;
+      ctx.beginPath();
+      ctx.arc(rearSp.x, rearSp.y, Math.max(6, 16 * rearSp.scale * 0.035), 0, 6.2832);
+      ctx.fill();
+    }
+
+    // Overcharge streaks: drawn under the dust so the plume rolls over them.
+    if (car.trail.length) {
+      for (var tr = 0; tr < car.trail.length; tr++) {
+        var q = car.trail[tr];
+        var qs = cam.project(q.x, T.surfaceAt(q.x, q.z) + q.y, q.z, {});
+        if (!qs) continue;
+        var qr = Math.max(2, q.r * qs.scale * 0.095);
+        var qg = ctx.createRadialGradient(qs.x, qs.y, 0, qs.x, qs.y, qr);
+        qg.addColorStop(0, "rgba(190,246,255," + (q.life * 0.75).toFixed(3) + ")");
+        qg.addColorStop(0.4, "rgba(78,196,255," + (q.life * 0.45).toFixed(3) + ")");
+        qg.addColorStop(1, "rgba(30,96,230,0)");
+        ctx.fillStyle = qg;
+        ctx.beginPath();
+        ctx.arc(qs.x, qs.y, qr, 0, 6.2832);
+        ctx.fill();
+      }
+      // Twin jets off the tailpipes, so the overcharge reads instantly even
+      // at a standstill when there are no particles in the air yet.
+      if (car.boosting) {
+        var bf = car.forward();
+        var brx = -bf[1], brz = bf[0];
+        ctx.lineCap = "round";
+        for (var js = -1; js <= 1; js += 2) {
+          var ox = brx * js * 2.2, oz = brz * js * 2.2;
+          var b0 = cam.project(car.x - bf[0] * 5.4 + ox, relief + 2.2,
+                               car.z - bf[1] * 5.4 + oz, {});
+          var b1 = cam.project(car.x - bf[0] * 17 + ox, relief + 2.2,
+                               car.z - bf[1] * 17 + oz, {});
+          if (!b0 || !b1) continue;
+          var lg = ctx.createLinearGradient(b0.x, b0.y, b1.x, b1.y);
+          lg.addColorStop(0, "rgba(228,252,255,0.9)");
+          lg.addColorStop(0.35, "rgba(110,210,255,0.55)");
+          lg.addColorStop(1, "rgba(60,150,255,0)");
+          ctx.strokeStyle = lg;
+          ctx.lineWidth = Math.max(3, 10 * b0.scale * 0.06);
+          ctx.beginPath();
+          ctx.moveTo(b0.x, b0.y);
+          ctx.lineTo(b1.x, b1.y);
+          ctx.stroke();
+        }
+        ctx.lineWidth = 1;
+        ctx.lineCap = "butt";
+      }
+    }
+
     // dust plume
     for (var d = 0; d < car.dust.length; d++) {
       var p = car.dust[d];
@@ -1256,7 +1764,7 @@
     }
 
     var label = (target.name || "WAYPOINT") + "  " + Math.round(miles) + " MI";
-    ctx.font = "11px Consolas, monospace";
+    ctx.font = '10px "FO2 Terminal", Consolas, monospace';
     var tw = ctx.measureText(label).width;
     var lx = -tw / 2, ly = 26;
     ctx.fillStyle = "rgba(8,12,10,0.85)";
@@ -1378,7 +1886,7 @@
 
     // Adaptive band size: keep the ground pass inside a frame budget.
     quality.acc += performance.now() - t0;
-    if (++quality.frames >= 30) {
+    if (++quality.frames >= 15) {
       var avg = quality.acc / quality.frames;
       quality.ms = avg;
       quality.fps = Math.round(1000 / Math.max(avg, 1 / 240));
@@ -1386,7 +1894,10 @@
       // frames run long, and creep back up only when there is real headroom.
       if (quality.lock) { quality.frames = 0; quality.acc = 0; }
       else if (avg > 18 && quality.tier < QUALITY_TIERS.length - 1) {
-        quality.tier++;
+        // Badly over budget drops two tiers at once; creeping down one step at
+        // a time left the first seconds unusable on a slow renderer.
+        quality.tier += (avg > 45 ? 2 : 1);
+        if (quality.tier > QUALITY_TIERS.length - 1) quality.tier = QUALITY_TIERS.length - 1;
         T.setTarget(QUALITY_TIERS[quality.tier].quads);
       } else if (avg < 8 && quality.tier > 0) {
         quality.tier--;
@@ -1396,7 +1907,7 @@
     }
 
     if (quality.showFps) {
-      ctx.font = "12px Consolas, monospace";
+      ctx.font = '10px "FO2 Terminal", Consolas, monospace';
       ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.fillRect(cam.viewport.w - 250, cam.viewport.h - 150, 240, 56);
       ctx.fillStyle = "#7fe09a";
@@ -1454,6 +1965,19 @@
       }
       tween.on = false;
     }, { passive: false });
+
+    // Mode switch, panel folds and the map key.
+    $id("msSurvey").onclick = function () { setMode("survey"); };
+    $id("msDrive").onclick = function () {
+      if (state.travel) { HUD.toast("EN ROUTE \u00b7 ABORT FIRST [ESC]", "warn"); return; }
+      setMode("drive");
+    };
+    fold("foldLeft", "left");
+    fold("foldRight", "right");
+    $id("keyToggle").onclick = function () {
+      var k = $id("mapkey");
+      k.className = k.className === "shut" ? "" : "shut";
+    };
 
     global.addEventListener("keydown", function (e) {
       var k = e.key.toLowerCase();
@@ -1568,7 +2092,7 @@
       state.timeScale = n;
       state.paused = (n === 0);
       HUD.speedButtons(n);
-      HUD.toast(n === 0 ? "TIME PAUSED" : "TIME x" + TIME_SCALES[n]);
+      HUD.toast(n === 0 ? "TIME HELD" : "TIME RATE \u00d7" + TIME_SCALES[n]);
     },
     state: state,
     /** Toggle the on-canvas frame-cost readout (also: index.html#fps). */
