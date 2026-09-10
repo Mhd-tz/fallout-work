@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>FO2 Wasteland Travel</title>
+    <link rel="stylesheet" href="css/travel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- 3D map: perspective ground + vehicle + route, all Canvas2D -->
+      <canvas id="map"></canvas>
+      <!-- DOM layer for location counters and encounter pins -->
+      <div id="markers"></div>
+
+      <!-- ================= TOP BAR ================= -->
+      <div id="topbar">
+        <div class="brand"><b>CHRYSLUS</b> NAVCOM</div>
+
+        <div class="modechip" id="modechip">
+          <span class="dotm"></span><span id="modetext">SURVEY</span>
+        </div>
+
+        <div id="clockbox">
+          <div>
+            <div id="stamp">25 JUL 2241 0813</div>
+            <div id="daynight">CLEAR &middot; DAY</div>
+          </div>
+        </div>
+
+        <div id="speedbox">
+          <span class="lbl">TIME</span>
+          <button class="spd" id="spd0" title="Pause (Space)">II</button>
+          <button class="spd on" id="spd1" title="Normal">1</button>
+          <button class="spd" id="spd2" title="Fast">2</button>
+          <button class="spd" id="spd3" title="Fastest">3</button>
+        </div>
+
+        <div class="spacer"></div>
+
+        <div id="focusbadge"><span class="dotm"></span><span id="focustext">NO INPUT FOCUS</span></div>
+        <button class="tbtn" id="btnCenter">RECENTER</button>
+        <button class="tbtn" id="btnRoads">ROADS</button>
+        <button class="tbtn danger" id="btnClose">EXIT [ESC]</button>
+      </div>
+
+      <!-- ================= LEFT: DESTINATIONS ================= -->
+      <div id="left" class="panel">
+        <div class="phead">
+          <span class="sq"></span><span>Known Locations</span>
+          <span class="sp"></span><span class="cnt" id="loccount">0/0</span>
+        </div>
+        <input id="search" type="text" placeholder="filter locations…" spellcheck="false" />
+        <div id="loclist"></div>
+      </div>
+
+      <!-- ================= RIGHT: DOSSIER ================= -->
+      <div id="right" class="panel">
+        <div class="phead">
+          <span class="sq"></span><span>Route Plan</span>
+          <span class="sp"></span><span class="cnt" id="rangelabel"></span>
+        </div>
+        <div id="dossier">
+          <div id="empty">
+            NO DESTINATION SELECTED<br />
+            <span style="color: var(--text-dim)">
+              Click a marker on the map, or pick one from the list.
+            </span><br /><br />
+            <span style="color: var(--text-mute)">
+              LMB drag&nbsp;·&nbsp;pan &nbsp; RMB drag&nbsp;·&nbsp;rotate<br />
+              Wheel&nbsp;·&nbsp;zoom &nbsp; TAB&nbsp;·&nbsp;drive mode
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= TRAVEL PROGRESS ================= -->
+      <div id="travelbar" class="panel">
+        <div class="tb">
+          <span>EN ROUTE &middot; <b id="tbdest">—</b></span>
+          <span id="tbeta">ETA —</span>
+        </div>
+        <div id="trackwrap"><div id="track"></div></div>
+      </div>
+
+      <!-- ================= BOTTOM: VEHICLE ================= -->
+      <div id="bottom" class="panel">
+        <div class="vname">
+          <div class="t">HIGHWAYMAN</div>
+          <div class="s" id="vsub">CHRYSLUS CORVEGA · MFC DRIVE</div>
+        </div>
+
+        <div class="gauges">
+          <div class="gauge">
+            <div class="gt"><span>MICRO FUSION CELLS</span><b id="fuelpct">100%</b></div>
+            <div class="cells" id="fuelcells"></div>
+          </div>
+          <div class="gauge">
+            <div class="gt"><span>CHASSIS CONDITION</span><b id="condpct">100%</b></div>
+            <div class="cells" id="condcells"></div>
+          </div>
+        </div>
+
+        <div id="speedo">
+          <div>
+            <div style="display: flex; align-items: baseline; gap: 6px">
+              <div class="big" id="mph">0</div>
+              <div class="un">MPH</div>
+            </div>
+            <div id="odo">ODO 0 MI</div>
+          </div>
+        </div>
+
+        <div id="driveinfo">
+          <div id="compass">
+            <div class="tape" id="tape"></div>
+            <div class="needle"></div>
+            <div class="wp" id="wpmark" style="display: none">▼</div>
+          </div>
+          <div id="hint">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive &nbsp;
+            <kbd>SHIFT</kbd> boost &nbsp; <kbd>SPACE</kbd> brake &nbsp;
+            <kbd>TAB</kbd> survey map &nbsp; <kbd>F</kbd> headlights
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= ENCOUNTER MODAL ================= -->
+      <div id="modalwrap">
+        <div id="modal" class="encwin hostile">
+          <div class="encbar">
+            <span class="blip"></span>
+            <span id="enckind">HOSTILE CONTACT</span>
+            <span class="rule"></span>
+            <span class="chan">NAVCOM / PROXIMITY ALERT</span>
+          </div>
+
+          <div class="encart" id="encart"></div>
+
+          <div class="enchead">
+            <div>
+              <div class="enctitle" id="enctitle">RAIDER AMBUSH</div>
+              <div class="encwhere" id="encwhere">OPEN WASTELAND</div>
+            </div>
+            <div class="encthreatbox">
+              <div class="tlabel">THREAT</div>
+              <div id="encthreat"></div>
+            </div>
+          </div>
+
+          <div class="encbody" id="encbody"></div>
+
+          <div class="encprompt">SELECT RESPONSE</div>
+          <div class="mchoices" id="mchoices"></div>
+        </div>
+      </div>
+
+      <div id="toasts"></div>
+      <div id="crt"></div>
+
+      <div id="errbox" style="display:none;position:absolute;left:0;right:0;bottom:0;z-index:99;background:#3a0d0d;color:#ffb4a8;font:11px monospace;padding:6px 10px"></div>
+
+      <div id="boot">
+        <div style="font-family: var(--sans); font-size: 18px; letter-spacing: 6px">
+          CHRYSLUS NAVCOM
+        </div>
+        <div class="bar"><i id="bootbar"></i></div>
+        <div id="bootlog">INITIALISING</div>
+      </div>
+    </div>
+
+    <!-- Error trap. Ultralight surfaces nothing on a JS error - the view just
+         goes blank - so route everything to the boot log and to console.error,
+         which PrismaUI forwards into the F4SE log file. -->
+    <script>
+      window.__fo2err = [];
+      window.addEventListener("error", function (e) {
+        var line = e.message + " @ " + String(e.filename || "").split("/").pop() + ":" + e.lineno;
+        window.__fo2err.push(line);
+        var b = document.getElementById("bootlog");
+        if (b) b.textContent = "ERROR: " + e.message;
+        var d = document.getElementById("errbox");
+        if (d) { d.style.display = "block"; d.textContent = window.__fo2err.join(" | "); }
+        console.error("[FO2Travel] " + line);
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        console.error("[FO2Travel] unhandled promise: " + e.reason);
+      });
+    </script>
+
+    <!-- Plain scripts, no ES modules: PrismaUI loads views off disk and
+         file:// + modules trips CORS in WebKit. Order matters. -->
+    <script src="js/r3.js"></script>
+    <script src="js/worldmap.js"></script>
+    <script src="js/terrain.js"></script>
+    <script src="js/props.js"></script>
+    <script src="js/vehicle.js"></script>
+    <script src="js/travel.js"></script>
+    <script src="js/bridge.js"></script>
+    <script src="js/hud.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
