@@ -36,13 +36,23 @@
     // means "assume yes": the view must not hide a door the mod does have.
     enterable: {},
     entering: null,
-    car: null
+    // Set once the game has taken the hand-off: the player is indoors and
+    // the car is parked outside until they come back out.
+    inside: null,
+    car: null,
+    // "3d" is the tilted terrain view, "2d" the straight-down chart. A view
+    // is a camera choice, not a mode: driving, travel and picking all work
+    // the same in either.
+    view: "3d"
   };
   var TIME_SCALES = [0, 1, 3, 8];
+  // Rolling within ARRIVE_R of a site parks you at it; LEAVE_R ends that.
+  var ARRIVE_R = 24, LEAVE_R = 32;
 
   /* --- input state --------------------------------------------------------- */
   var keys = {};
   var drag = null;
+  var wasBlocked = false;
   // Ultralight rasterises to the GPU, so the ceiling is set well above what a
   // software rasteriser can hold; the controller below finds the real limit.
   // Seam strokes are off at every tier: stroking each quad in its own fill
@@ -100,6 +110,7 @@
           HUD.mode("survey");
           HUD.buildKey();
           $id("themeswitch").className = THEME.restore();
+          restoreView();
           refreshEnterPrompt();
           HUD.focus(B.focused);
           HUD.toast("NAVCOM ONLINE · " + W.LOCATIONS.length + " SITES ON FILE", "good");
@@ -135,6 +146,7 @@
     tween.on = false;
   }
 
+  var devBlend = null;
   function applyDevFlags() {
     var h = String(global.location.hash || "").slice(1);
     if (!h) return;
@@ -145,6 +157,17 @@
     });
 
     if (q.fps) quality.showFps = true;
+    if (q.theme) setTheme(q.theme);
+    if (q.blend !== undefined) {
+      devBlend = Math.max(0, Math.min(1, parseFloat(q.blend) || 0));
+      cam.flat = devBlend;
+    }
+    // #view=2d lands straight on the chart, with the blend already settled.
+    if (q.view) {
+      setView(q.view === "2d" ? "2d" : "3d", true);
+      cam.flat = state.view === "2d" ? 1 : 0;
+      if (state.view === "2d") cam.pitch = Math.PI / 2;
+    }
     if (q.quality !== undefined) {
       quality.tier = Math.max(0, Math.min(QUALITY_TIERS.length - 1, parseInt(q.quality, 10) || 0));
       quality.lock = true;
@@ -189,11 +212,12 @@
 
       setMode("drive");
       var fwd = car.forward();
-      cam.yaw = car.heading;
-      cam.tx = car.x + fwd[0] * 26;
-      cam.tz = car.z + fwd[1] * 26;
-      cam.dist = q.dist ? parseFloat(q.dist) : 150;
-      cam.pitch = q.pitch !== undefined ? parseFloat(q.pitch) : 0.62;
+      var chart = state.view === "2d";
+      cam.yaw = chart ? 0 : car.heading;
+      cam.tx = car.x + (chart ? 0 : fwd[0] * 26);
+      cam.tz = car.z + (chart ? 0 : fwd[1] * 26);
+      cam.dist = q.dist ? parseFloat(q.dist) : (chart ? 150 + CHART_DRIVE_EXTRA : 150);
+      cam.pitch = q.pitch !== undefined ? parseFloat(q.pitch) : (chart ? Math.PI / 2 : 0.62);
       snapTween();
       if (q.speed) car.speed = parseFloat(q.speed) || 30;
       if (q.boost) state.forceBoost = true;   // dev: hold the overcharge open
@@ -227,7 +251,12 @@
       if (!d.focused && state.mode === "drive") setMode("survey");
     });
 
-    B.on("state.sync", function (m) { applyState(m); });
+    B.on("state.sync", function (m) {
+      // A full sync is the game re-opening the map: whatever the player was
+      // inside, they are back at the car now.
+      if (state.inside) leaveLocation(true);
+      applyState(m);
+    });
     B.on("state.patch", function (m) { applyState(m); });
 
     B.on("clock.set", function (m) { TR.Clock.set(m); HUD.clock(); });
@@ -236,10 +265,13 @@
     B.on("location.entered", function (m) {
       var loc = W.loc(m.locId) || hereLoc();
       clearEntering();
-      HUD.enterPrompt(loc || null, "busy", "Loading\u2026");
+      goInside(loc);
       HUD.toast("ENTERING " + (loc ? loc.name : "LOCATION"), "good");
       controller.exit();
     });
+
+    // The player walked back out to the car (the game says so, or the mock).
+    B.on("location.exited", function () { leaveLocation(true); });
 
     // Refused - over-encumbered, in combat, nothing built there. Give the
     // player the button back and tell them why.
@@ -319,6 +351,7 @@
   function applyState(m) {
     if (m.clock) { TR.Clock.set(m.clock); HUD.clock(); }
     if (m.theme) setTheme(m.theme);
+    if (m.view) setView(m.view, true);
     if (m.enterable) applyEnterable(m.enterable);
     if (m.vehicle) {
       if (m.vehicle.fuel !== undefined) car.fuel = m.vehicle.fuel;
@@ -352,6 +385,7 @@
       return;
     }
     state.selected = id;
+    unfold("foldRight", "right");
     var from = (state.mode === "drive" || !state.here) ? { x: car.x, z: car.z } : state.here;
     var route = TR.route(from, id);
     if (!route) {
@@ -369,6 +403,8 @@
   }
 
   function clearSelection() {
+    // CLEAR PLOT while the car is under way is the cancel button.
+    if (state.travel) abortTravel("player");
     state.selected = null;
     state.route = null;
     state.est = null;
@@ -399,6 +435,7 @@
   var ENTER_TIMEOUT = 6000;
 
   function hereLoc() {
+    if (state.inside) return W.loc(state.inside) || null;
     if (!state.here || state.travel) return null;
     if (state.mode === "travel") return null;
     if (HUD.encounterOpen()) return null;
@@ -410,7 +447,9 @@
   function refreshEnterPrompt() {
     var loc = hereLoc();
     if (!loc) { HUD.enterPrompt(null); return; }
-    if (state.entering && state.entering.id === loc.id) {
+    if (state.inside === loc.id) {
+      HUD.enterPrompt(loc, "inside", "Inside \u00b7 the car is parked at the gate");
+    } else if (state.entering && state.entering.id === loc.id) {
       HUD.enterPrompt(loc, "busy", "Handing over to the game\u2026");
     } else if (state.enterable[loc.id] === false) {
       HUD.enterPrompt(loc, "blocked", "No interior built for this site yet");
@@ -420,6 +459,7 @@
   }
 
   function enterLocation() {
+    if (state.inside) { leaveLocation(false); return; }
     var loc = hereLoc();
     if (!loc) { HUD.toast("NOT AT A LOCATION", "warn"); return; }
     if (state.entering) return;
@@ -450,6 +490,38 @@
     state.entering = null;
   }
 
+  /**
+   * The game has the player: park the car and lock the wheel. Driving, auto
+   * travel and pinning are refused until leaveLocation(), so the map cannot
+   * quietly carry the car off to the next town while its driver is indoors.
+   */
+  function goInside(loc) {
+    if (!loc) return;
+    state.inside = loc.id;
+    state.here = loc.id;
+    state.waypoint = null;
+    car.speed = 0;
+    if (state.mode === "drive") setMode("survey");
+    refreshEnterPrompt();
+    refreshDossier();
+    refreshList();
+    HUD.hint('<kbd>E</kbd> leave ' + loc.name + ' &nbsp; <kbd>ESC</kbd> leave');
+  }
+
+  /** Back out to the car. `quiet` when the game announced it, not the player. */
+  function leaveLocation(quiet) {
+    if (!state.inside) return;
+    var loc = W.loc(state.inside);
+    state.inside = null;
+    if (!quiet) {
+      B.send("location.leave", { locId: loc ? loc.id : null, marker: loc ? loc.marker : null });
+      HUD.toast("BACK AT THE HIGHWAYMAN");
+    }
+    refreshEnterPrompt();
+    refreshDossier();
+    HUD.hint('<kbd>LMB</kbd> pan &nbsp; <kbd>RMB</kbd> rotate &nbsp; <kbd>WHEEL</kbd> zoom &nbsp; <kbd>TAB</kbd> drive &nbsp; <kbd>ENTER</kbd> travel');
+  }
+
   function refreshDossier() {
     if (!state.selected || !state.est) return;
     HUD.dossier(W.loc(state.selected), state.est, state);
@@ -460,6 +532,7 @@
    * ====================================================================== */
   function beginTravel() {
     if (!state.route || !state.selected) return;
+    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [E]", "warn"); return; }
     // Departing again while already under way rebuilt the course from the
     // last known stop and reset the odometer along it, which snapped the car
     // back to where it set off. One course at a time.
@@ -698,6 +771,7 @@
    * MANUAL DRIVING
    * ====================================================================== */
   function pinAndDrive() {
+    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [E]", "warn"); return; }
     if (!state.selected) return;
     var loc = W.loc(state.selected);
     state.waypoint = { x: loc.x, z: loc.z, id: loc.id, name: loc.name };
@@ -708,7 +782,7 @@
 
   var driveFeed = 0, clockFeed = 0;
   function stepDrive(dt) {
-    if (HUD.encounterOpen()) return;
+    if (HUD.encounterOpen() || state.inside) return;
     var throttle = 0, steer = 0;
     if (state.forceBoost) throttle += 1;
     if (keys["w"] || keys["arrowup"]) throttle += 1;
@@ -721,7 +795,10 @@
       handbrake: !!keys[" "]
     });
 
-    if (car.blocked) HUD.toast("IMPASSABLE TERRAIN", "warn");
+    // Edge-triggered: holding W against a shoreline used to post the warning
+    // every frame and bury the toast stack.
+    if (car.blocked && !wasBlocked) HUD.toast("IMPASSABLE TERRAIN", "warn");
+    wasBlocked = car.blocked;
 
     if (moved > 0) {
       var terr = Math.max(0.25, T.speedAt(car.x, car.z));
@@ -739,10 +816,14 @@
     }
 
     // Arrival on a pinned waypoint, or just rolling into any known town.
+    // The road usually passes a site rather than through it, so the arrival
+    // radius is generous and the departure radius wider still, so the prompt
+    // does not flicker at the edge.
     W.LOCATIONS.forEach(function (l) {
-      if (Math.hypot(l.x - car.x, l.z - car.z) < 12) {
+      if (Math.hypot(l.x - car.x, l.z - car.z) < ARRIVE_R) {
         if (state.here !== l.id) {
           state.here = l.id;
+          refreshEnterPrompt();
           if (!state.discovered[l.id]) {
             state.discovered[l.id] = true;
             B.discover({ id: l.id, x: l.x, z: l.z });
@@ -758,6 +839,16 @@
         }
       }
     });
+
+    // ...and rolling back out again drops the arrival prompt.
+    if (state.here) {
+      var hl = W.loc(state.here);
+      if (hl && Math.hypot(hl.x - car.x, hl.z - car.z) > LEAVE_R) {
+        state.here = null;
+        refreshList();
+        refreshEnterPrompt();
+      }
+    }
 
     driveFeed += dt;
     if (driveFeed > 0.25) { driveFeed = 0; B.driveState(car); }
@@ -805,6 +896,36 @@
     return applied;
   }
 
+  /**
+   * Perspective terrain or a flat top-down chart. Only the camera changes:
+   * updateCamera eases cam.flat and the pitch toward the new target, so the
+   * map tilts up into a chart (and back) instead of cutting.
+   */
+  var VIEWS = { "3d": 1, "2d": 1 };
+  // Chase distance 150 plus this is the chart's driving zoom: about a third
+  // of the map on screen, which is roughly the window the original scrolled.
+  var CHART_DRIVE_EXTRA = 230;
+  function setView(name, quiet) {
+    if (!VIEWS[name]) name = "3d";
+    var changed = state.view !== name;
+    state.view = name;
+    $id("viewswitch").className = name === "2d" ? "flat" : "persp";
+    try { localStorage.setItem("fo2.view", name); } catch (e) { /* no storage */ }
+    if (!changed) return name;
+    B.send("ui.view", { view: name });
+    if (!quiet) HUD.toast(name === "2d" ? "CHART VIEW \u00b7 2D" : "TERRAIN VIEW \u00b7 3D");
+    return name;
+  }
+  function restoreView() {
+    var v = "3d";
+    try { v = localStorage.getItem("fo2.view") || "3d"; } catch (e) { /* no storage */ }
+    if (!VIEWS[v]) v = "3d";
+    state.view = v;
+    cam.flat = v === "2d" ? 1 : 0;
+    if (v === "2d") cam.pitch = Math.PI / 2;
+    $id("viewswitch").className = v === "2d" ? "flat" : "persp";
+  }
+
   /** Collapse a side panel down to its header bar, and back. */
   function fold(btnId, panelId) {
     var btn = $id(btnId), panel = $id(panelId);
@@ -817,8 +938,21 @@
     };
   }
 
+  /** Open a folded side panel, e.g. when its contents just changed. */
+  function unfold(btnId, panelId) {
+    var btn = $id(btnId), panel = $id(panelId);
+    if (!panel || panel.className.indexOf("folded") < 0) return;
+    panel.className = "panel";
+    if (btn) btn.title = "Collapse";
+    HUD.refreshPanelRects();
+  }
+
   function setMode(mode) {
     if (state.mode === mode) return;
+    if (mode === "drive" && state.inside) {
+      HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [E]", "warn");
+      return;
+    }
     var prev = state.mode;
     state.mode = mode;
     HUD.mode(mode);
@@ -826,7 +960,7 @@
     if (mode === "drive") {
       B.driveBegin(car);
       B.setTravelMode(2);
-      HUD.hint('<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive &nbsp; <kbd>SHIFT</kbd> boost &nbsp; <kbd>SPACE</kbd> brake &nbsp; <kbd>TAB</kbd> survey map &nbsp; <kbd>F</kbd> headlights');
+      HUD.hint('<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive &nbsp; <kbd>SHIFT</kbd> boost &nbsp; <kbd>SPACE</kbd> brake &nbsp; <kbd>TAB</kbd> back to map &nbsp; <kbd>F</kbd> headlights');
     } else if (prev === "drive") {
       B.driveEnd(car);
       B.setTravelMode(state.travel ? 1 : 0);
@@ -845,18 +979,37 @@
   }
 
   function updateCamera(dt) {
+    // Projection blend. The pitch target below is pulled toward vertical by
+    // the same amount, so the tilt and the flattening arrive together.
+    var flatWant = state.view === "2d" ? 1 : 0;
+    if (devBlend !== null) flatWant = devBlend;   // #blend=0.5 holds a mid-tilt frame
+    cam.flat += (flatWant - cam.flat) * Math.min(1, dt * 4.5);
+    if (Math.abs(cam.flat - flatWant) < 0.004) cam.flat = flatWant;
+    var flatK = cam.flat * cam.flat * (3 - 2 * cam.flat);
+    var TOP = Math.PI / 2;
+    // The pitch normally drifts to its target gently; during a view switch
+    // it has ~0.7 rad to cover and must keep pace with the projection blend.
+    var pitchRate = Math.abs(cam.flat - flatWant) > 0.002 ? 5.0 : 2.5;
+
     if (state.mode === "drive") {
       var f = car.forward();
-      var tx = car.x + f[0] * 26, tz = car.z + f[1] * 26;
+      // The chase camera leads the car; the chart sits on it. Fallout 2's
+      // map is north-up with the party as a small marker in the middle of
+      // the sheet, and that is what the chart is, so the yaw goes to zero
+      // there instead of following the heading.
+      var lead = 26 * (1 - flatK);
+      var tx = car.x + f[0] * lead, tz = car.z + f[1] * lead;
       var k = Math.min(1, dt * 4.2);
       cam.tx += (tx - cam.tx) * k;
       cam.tz += (tz - cam.tz) * k;
-      var dy = car.heading - cam.yaw;
+      var yawWant = flatK > 0.5 ? 0 : car.heading;
+      var dy = yawWant - cam.yaw;
       while (dy > Math.PI) dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
       cam.yaw += dy * Math.min(1, dt * 3.2);
-      cam.pitch += (0.62 - cam.pitch) * Math.min(1, dt * 3);
-      cam.dist += (150 - cam.dist) * Math.min(1, dt * 3);
+      var pDrive = 0.62 + (TOP - 0.62) * flatK;
+      cam.pitch += (pDrive - cam.pitch) * Math.min(1, dt * Math.max(3, pitchRate));
+      cam.dist += ((150 + CHART_DRIVE_EXTRA * flatK) - cam.dist) * Math.min(1, dt * 3);
     } else {
       if (state.mode === "travel") {
         var kk = Math.min(1, dt * 1.6);
@@ -876,16 +1029,26 @@
       if (keys["s"] || keys["arrowdown"])  { cam.tx += sy * pan; cam.tz += cy * pan; tween.on = false; }
       if (keys["a"] || keys["arrowleft"])  { cam.tx -= cy * pan; cam.tz += sy * pan; tween.on = false; }
       if (keys["d"] || keys["arrowright"]) { cam.tx += cy * pan; cam.tz -= sy * pan; tween.on = false; }
-      if (keys["q"]) cam.yaw += dt * 1.1;
-      if (keys["e"]) cam.yaw -= dt * 1.1;
-      cam.pitch += (0.86 - cam.pitch) * Math.min(1, dt * 2.5);
+      if (state.view !== "2d") {
+        if (keys["q"]) cam.yaw += dt * 1.1;
+        if (keys["e"]) cam.yaw -= dt * 1.1;
+      } else {
+        // North-up: a chart does not turn.
+        var dy2 = -cam.yaw;
+        while (dy2 > Math.PI) dy2 -= Math.PI * 2;
+        while (dy2 < -Math.PI) dy2 += Math.PI * 2;
+        cam.yaw += dy2 * Math.min(1, dt * 3.2);
+      }
+      var pSurvey = 0.86 + (TOP - 0.86) * flatK;
+      cam.pitch += (pSurvey - cam.pitch) * Math.min(1, dt * pitchRate);
     }
 
     var m = 260;
     cam.tx = Math.max(-m, Math.min(W.SIZE + m, cam.tx));
     cam.tz = Math.max(-m, Math.min(W.SIZE + m, cam.tz));
     cam.dist = Math.max(90, Math.min(1500, cam.dist));
-    cam.pitch = Math.max(0.35, Math.min(1.35, cam.pitch));
+    // The pitch ceiling opens up to vertical as the chart comes in.
+    cam.pitch = Math.max(0.35, Math.min(1.35 + (TOP - 1.35) * flatK, cam.pitch));
     // Orbit the ground, not the y=0 plane, and ease so ridgelines do not
     // snap the view. Zoomed out the relief stops mattering, so fade it away.
     var groundY = T.reliefAt(cam.tx, cam.tz) * Math.max(0, 1 - cam.dist / 1600);
@@ -1718,14 +1881,20 @@
     // Re-sample the ground every frame: auto-travel moves the car by writing
     // x/z directly, so without this it would ride at a stale height.
     var relief = car.groundPose();
+    // On the chart the car is a marker, and a marker casts no shadow, throws
+    // no headlight cone and has no reactor on its trunk. The overcharge
+    // streaks stay: they are the one thing the boost gauge points at.
+    var chart = cam.flat >= 0.5;
 
     // shadow
-    ctx.fillStyle = TC(0,0,0,0.34);
-    R3.groundCircle(ctx, cam, car.x, car.z, 6.2, 18, relief);
-    ctx.fill();
+    if (!chart) {
+      ctx.fillStyle = TC(0,0,0,0.34);
+      R3.groundCircle(ctx, cam, car.x, car.z, 6.2, 18, relief);
+      ctx.fill();
+    }
 
     // headlights on the ground, at the car's elevation
-    if (car.lightsOn || TR.Clock.isNight() || state.weather === "storm") {
+    if (!chart && (car.lightsOn || TR.Clock.isNight() || state.weather === "storm")) {
       var f = car.forward();
       var rx = -f[1], rz = f[0];
       var near = 8, far = 78, spread = 26;
@@ -1747,15 +1916,19 @@
       }
     }
 
-    R3.drawMesh(ctx, car.mesh, cam,
-      { x: car.x, y: relief, z: car.z, rot: car.heading,
-        pitch: car.pitch, roll: car.roll, scale: car.scale },
-      { light: light });
+    if (!chart) {
+      R3.drawMesh(ctx, car.mesh, cam,
+        { x: car.x, y: relief, z: car.z, rot: car.heading,
+          pitch: car.pitch, roll: car.roll, scale: car.scale },
+        { light: light });
+    } else {
+      drawChartPlayer(relief);
+    }
 
     // Atomic Micro-Fusion Cell (MFC) reactor pulse glow on the trunk
     var cf = car.forward();
     var rearWx = car.x - cf[0] * 5.0, rearWz = car.z - cf[1] * 5.0;
-    var rearSp = cam.project(rearWx, relief + 3.2, rearWz, {});
+    var rearSp = chart ? null : cam.project(rearWx, relief + 3.2, rearWz, {});
     if (rearSp && rearSp.w > 0) {
       var pulse = 0.72 + 0.28 * Math.sin(worldTime * 8.5);
       var rxGlow = ctx.createRadialGradient(rearSp.x, rearSp.y, 1, rearSp.x, rearSp.y, Math.max(6, 16 * rearSp.scale * 0.035));
@@ -1823,6 +1996,124 @@
       ctx.arc(s.x, s.y, Math.max(1, p.r * s.scale * 0.06), 0, 6.2832);
       ctx.fill();
     }
+  }
+
+  /**
+   * The party marker on the chart: Fallout 2 drew the player as a small
+   * hollow triangle on the world map, and at chart zoom the car model is a
+   * few pixels of red anyway. Screen-sized, so it reads at every zoom, and
+   * pointed along the heading so you can still tell which way you are going
+   * on a north-up sheet.
+   */
+  function drawChartPlayer(relief) {
+    var s = cam.project(car.x, relief + 1, car.z, {});
+    if (!s) return;
+    // Point the marker the way the car's own forward vector projects, so it
+    // cannot disagree with the model about which way is left.
+    var fwd = car.forward();
+    var ahead = cam.project(car.x + fwd[0] * 10, relief + 1, car.z + fwd[1] * 10, {});
+    var ux = 0, uy = -1;
+    if (ahead) {
+      var dx = ahead.x - s.x, dy = ahead.y - s.y, dl = Math.hypot(dx, dy);
+      if (dl > 1e-3) { ux = dx / dl; uy = dy / dl; }
+    }
+    var r = 11;
+    var tip = [s.x + ux * r, s.y + uy * r];
+    var bl = [s.x - ux * r * 0.8 - uy * r * 0.7, s.y - uy * r * 0.8 + ux * r * 0.7];
+    var br = [s.x - ux * r * 0.8 + uy * r * 0.7, s.y - uy * r * 0.8 - ux * r * 0.7];
+    var notch = [s.x - ux * r * 0.35, s.y - uy * r * 0.35];
+    var glow = [255, 84, 64];
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.shadowColor = THEME.raw(glow, 0.9);
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = TC(0, 0, 0, 0.55);
+    ctx.strokeStyle = THEME.raw(glow, 0.95);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(tip[0], tip[1]);
+    ctx.lineTo(bl[0], bl[1]);
+    ctx.lineTo(notch[0], notch[1]);
+    ctx.lineTo(br[0], br[1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    // A faint ring marks the spot when the car is stationary on a busy sheet.
+    if (car.speed < 0.5) {
+      ctx.strokeStyle = THEME.raw(glow, 0.35);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r + 6, 0, 6.2832);
+      ctx.stroke();
+    }
+  }
+
+  /**
+   * The Vault-Tec survey grid. The original world map is divided into
+   * squares - the fog of war lifts one square at a time - and that grid is
+   * most of what makes it read as "the Fallout 2 map". Ours is drawn in
+   * world units on the ground, so it stays put as the chart pans and zooms,
+   * and it fades in with the tilt.
+   */
+  var GRID_CELL = 50;
+  function drawChartGrid() {
+    var k = cam.flat;
+    if (k < 0.55) return;
+    var fade = Math.min(1, (k - 0.55) / 0.35);
+    var vw = cam.viewport.w, vh = cam.viewport.h;
+    // Visible window on the ground, from the screen corners.
+    var c = [cam.unproject(0, 0), cam.unproject(vw, 0), cam.unproject(0, vh), cam.unproject(vw, vh)];
+    var x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+    for (var i = 0; i < 4; i++) {
+      if (!c[i]) return;
+      x0 = Math.min(x0, c[i].x); x1 = Math.max(x1, c[i].x);
+      z0 = Math.min(z0, c[i].z); z1 = Math.max(z1, c[i].z);
+    }
+    x0 = Math.max(0, x0); z0 = Math.max(0, z0);
+    x1 = Math.min(W.SIZE, x1); z1 = Math.min(W.SIZE, z1);
+    if (x1 <= x0 || z1 <= z0) return;
+
+    var sc = THEME.scene.grid;
+    var term = THEME.isTerminal();
+    ctx.save();
+    ctx.lineWidth = 1;
+    // Minor lines every cell, a heavier line every four so the sheet has a
+    // scale you can count without a legend.
+    for (var pass = 0; pass < 2; pass++) {
+      var every = pass === 0 ? GRID_CELL : GRID_CELL * 4;
+      var alpha = (pass === 0 ? (term ? 0.28 : 0.30) : (term ? 0.55 : 0.55)) * fade;
+      ctx.strokeStyle = THEME.raw(sc, alpha);
+      ctx.beginPath();
+      for (var gx = Math.ceil(x0 / every) * every; gx <= x1; gx += every) {
+        if (pass === 0 && gx % (GRID_CELL * 4) === 0) continue;
+        var a = cam.project(gx, 0, z0, {}), b = cam.project(gx, 0, z1, {});
+        if (!a || !b) continue;
+        ctx.moveTo(Math.round(a.x) + 0.5, a.y);
+        ctx.lineTo(Math.round(b.x) + 0.5, b.y);
+      }
+      for (var gz = Math.ceil(z0 / every) * every; gz <= z1; gz += every) {
+        if (pass === 0 && gz % (GRID_CELL * 4) === 0) continue;
+        var a2 = cam.project(x0, 0, gz, {}), b2 = cam.project(x1, 0, gz, {});
+        if (!a2 || !b2) continue;
+        ctx.moveTo(a2.x, Math.round(a2.y) + 0.5);
+        ctx.lineTo(b2.x, Math.round(b2.y) + 0.5);
+      }
+      ctx.stroke();
+    }
+    // The sheet's edge.
+    var e = [cam.project(0, 0, 0, {}), cam.project(W.SIZE, 0, 0, {}),
+             cam.project(W.SIZE, 0, W.SIZE, {}), cam.project(0, 0, W.SIZE, {})];
+    if (e[0] && e[1] && e[2] && e[3]) {
+      ctx.strokeStyle = THEME.raw(sc, 0.8 * fade);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(e[0].x, e[0].y);
+      for (var j = 1; j < 4; j++) ctx.lineTo(e[j].x, e[j].y);
+      ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /**
@@ -1997,7 +2288,8 @@
       night: TR.Clock.isNight(),
       seams: QUALITY_TIERS[quality.tier].seams,
       light: light,
-      haze: haze
+      haze: haze,
+      flat: cam.flat
     });
 
     var horizon = cam.horizonY();
@@ -2008,9 +2300,11 @@
       light: light,
       time: worldTime,
       dt: dt,
-      maxProps: QUALITY_TIERS[quality.tier].detail ? 150 : 60
+      maxProps: QUALITY_TIERS[quality.tier].detail ? 150 : 60,
+      chart: cam.flat >= 0.5
     });
     drawGrain();
+    drawChartGrid();
     drawRoute();
     drawWaypoint();
     drawCar(dt);
@@ -2019,6 +2313,7 @@
     drawWeather(dt);
     drawGrade();
 
+    HUD.chart(cam.flat >= 0.5);
     HUD.updateMarkers(cam, state);
     HUD.vehicle(car, state.mode);
     if (state.mode === "drive") HUD.compass(car.heading, state.waypoint, car);
@@ -2073,8 +2368,11 @@
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       drag.moved += Math.abs(dx) + Math.abs(dy);
       if (drag.btn === 2) {
-        cam.yaw -= dx * 0.006;
-        cam.pitch = Math.max(0.35, Math.min(1.35, cam.pitch + dy * 0.004));
+        // The chart is north-up and flat: nothing to rotate or tilt.
+        if (state.view !== "2d") {
+          cam.yaw -= dx * 0.006;
+          cam.pitch = Math.max(0.35, Math.min(1.35, cam.pitch + dy * 0.004));
+        }
       } else if (state.mode !== "drive") {
         var k = cam.dist * 0.0022;
         var cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
@@ -2115,6 +2413,8 @@
     HUD.onEnter(enterLocation);
     $id("thSand").onclick = function () { setTheme("sand"); };
     $id("thGreen").onclick = function () { setTheme("green"); };
+    $id("vw3d").onclick = function () { setView("3d"); };
+    $id("vw2d").onclick = function () { setView("2d"); };
     fold("foldLeft", "left");
     fold("foldRight", "right");
     $id("keyToggle").onclick = function () {
@@ -2149,7 +2449,8 @@
           if (state.selected) pinAndDrive();
           break;
         case "escape":
-          if (state.travel) abortTravel("player");
+          if (state.inside) leaveLocation(false);
+          else if (state.travel) abortTravel("player");
           else if (state.selected) clearSelection();
           else controller.exit();
           break;
@@ -2160,6 +2461,7 @@
         case "r": recenter(); break;
         case "e": enterLocation(); break;
         case "c": setTheme(THEME.name === "sand" ? "green" : "sand"); break;
+        case "v": setView(state.view === "2d" ? "3d" : "2d"); break;
         case "0": case "1": case "2": case "3":
           controller.setTimeScale(parseInt(k, 10));
           break;
@@ -2241,11 +2543,14 @@
       HUD.toast(n === 0 ? "TIME HELD" : "TIME RATE \u00d7" + TIME_SCALES[n]);
     },
     state: state,
+    setView: setView,
     /** Toggle the on-canvas frame-cost readout (also: index.html#fps). */
     setFps: function (on) { quality.showFps = !!on; }
   };
 
   global.FO2Travel = controller;
+  // Dev probes read the camera through here; nothing in the app writes it.
+  Object.defineProperty(controller, "camera", { get: function () { return cam; } });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

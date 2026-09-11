@@ -505,7 +505,7 @@
   var stats = { props: 0 };
 
   /**
-   * @param o { light, time, maxProps, radius, showClouds }
+   * @param o { light, time, maxProps, radius, showClouds, chart }
    */
   function draw(ctx, cam, o) {
     o = o || {};
@@ -517,7 +517,11 @@
     // Scatter density falls away with zoom: at map scale the clutter would be
     // both invisible and ruinous, so it simply stops.
     var radius = o.radius || Math.max(90, Math.min(420, 26000 / Math.max(60, cam.dist)));
-    if (maxProps > 0 && cam.dist < 620) {
+    // A chart is terrain, water, roads and marks: from straight above the
+    // scrub is a scatter of black flecks and a town is a heap of black boxes,
+    // and neither is on any Vault-Tec sheet. Bridges stay, they are road.
+    var chart = !!o.chart;
+    if (maxProps > 0 && cam.dist < 620 && !chart) {
       var S = SPACING;
       var ci = Math.round(cam.tx / S), cj = Math.round(cam.tz / S);
       var n = Math.ceil(radius / S);
@@ -541,7 +545,7 @@
     }
 
     // Towns are landmarks - they stay visible much further out than scrub.
-    if (cam.dist < 900) {
+    if (cam.dist < 900 && !chart) {
       for (var t = 0; t < towns.length; t++) {
         var tw = towns[t];
         if (!T.isDiscovered(tw.x, tw.z)) continue;

@@ -126,8 +126,10 @@
    *   loc.unlock      { id } reveal a location
    *   loc.enterable   { id, enterable } mark whether a location has an
    *                   interior built yet; false greys out the ENTER action
-   *   location.entered{ locId } the game accepted; the view closes itself
+   *   location.entered{ locId } the game accepted; the view closes itself and
+   *                   locks the car until the player leaves (or the game says so)
    *   location.denied { locId, reason } refused; reason is shown to the player
+   *   location.exited { locId } the player is back at the car; unlocks the map
    *   clock.set       { year, month, day, hour, minute }
    *   ui.show / ui.hide / ui.toggle
    *   focus           { focused: bool }
@@ -159,7 +161,15 @@
   global.init = function () {
     Bridge.domReady = true;
     emit("prisma.domready", {});
-    Bridge.send("ui.ready", { ui: "fo2-travel", version: Bridge.version });
+    // The remembered palette and camera ride along so the game can pick the
+    // matching music without waiting for the player to touch a switch.
+    var pref = {};
+    try {
+      pref.theme = localStorage.getItem("fo2.theme") || "sand";
+      pref.view = localStorage.getItem("fo2.view") || "3d";
+    } catch (e) { pref.theme = "sand"; pref.view = "3d"; }
+    Bridge.send("ui.ready", { ui: "fo2-travel", version: Bridge.version,
+                              theme: pref.theme, view: pref.view });
     flush();
   };
 

@@ -40,6 +40,16 @@
       return out;
     },
 
+    /** Orthographic projection, symmetric about the view axis. */
+    ortho: function (out, halfW, halfH, near, far) {
+      var nf = 1 / (near - far);
+      out[0] = 1 / halfW; out[1] = 0; out[2] = 0; out[3] = 0;
+      out[4] = 0; out[5] = 1 / halfH; out[6] = 0; out[7] = 0;
+      out[8] = 0; out[9] = 0; out[10] = 2 * nf; out[11] = 0;
+      out[12] = 0; out[13] = 0; out[14] = (far + near) * nf; out[15] = 1;
+      return out;
+    },
+
     lookAt: function (out, eye, center, up) {
       var zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
       var zl = Math.hypot(zx, zy, zz) || 1;
@@ -96,8 +106,9 @@
   /* =========================================================================
    * Camera - orbits a point on the ground plane.
    *   yaw   0 = looking north (-Z), north is up on screen
-   *   pitch angle below the horizon, radians
-   *   dist  eye distance from the target
+   *   pitch angle below the horizon, radians (pi/2 = straight down)
+   *   dist  eye distance from the target; doubles as the zoom in flat mode
+   *   flat  0 perspective .. 1 orthographic
    * ====================================================================== */
   function Camera() {
     this.tx = 500;
@@ -111,11 +122,19 @@
     this.fov = 0.72;
     this.near = 4;
     this.far = 12000;
+    // 0 = perspective, 1 = orthographic top-down chart. Fractional values
+    // blend the two projection matrices, which is what makes the 3D -> 2D
+    // switch a tilt rather than a cut. main.js eases this; the pitch is its
+    // to drive too (pi/2 is straight down and is handled without a
+    // singularity, see update()).
+    this.flat = 0;
 
     this.eye = [0, 0, 0];
     this.vp = R3.mat4.create();
     this._v = R3.mat4.create();
     this._p = R3.mat4.create();
+    this._o = R3.mat4.create();
+    this.py = 1;       // projection's y scale, for pixels-per-unit at a depth
     this.viewport = { w: 1, h: 1 };
     this.H = null;     // ground(X,Z,1) -> screen(u,v,w)
     this.Hinv = null;  // screen -> ground
@@ -130,8 +149,27 @@
     this.eye[1] = this.ty + sp * this.dist;
     this.eye[2] = this.tz + Math.cos(this.yaw) * cp * this.dist;
 
-    R3.mat4.lookAt(this._v, this.eye, [this.tx, this.ty, this.tz], [0, 1, 0]);
+    // The up hint is the horizontal forward direction, not world up. For any
+    // pitch short of vertical it yields exactly the same basis as [0,1,0]
+    // would, and at pitch = pi/2 (looking straight down, where world up is
+    // parallel to the view axis and lookAt would collapse) it keeps north
+    // at the top of the screen.
+    var upHint = [-Math.sin(this.yaw), 0, -Math.cos(this.yaw)];
+    R3.mat4.lookAt(this._v, this.eye, [this.tx, this.ty, this.tz], upHint);
     R3.mat4.perspective(this._p, this.fov, w / h, this.near, this.far);
+    var f = this.flat;
+    if (f > 0) {
+      // Size the orthographic window so the scale at the orbit target is the
+      // same as the perspective view's: dist keeps meaning "zoom" in both.
+      var halfH = this.dist * Math.tan(this.fov / 2);
+      R3.mat4.ortho(this._o, halfH * w / h, halfH, -this.far, this.far);
+      if (f >= 1) {
+        for (var i = 0; i < 16; i++) this._p[i] = this._o[i];
+      } else {
+        for (var j = 0; j < 16; j++) this._p[j] += (this._o[j] - this._p[j]) * f;
+      }
+    }
+    this.py = this._p[5];
     R3.mat4.multiply(this.vp, this._p, this._v);
 
     // Collapse the reference plane y = ty out of the 4x4 into a 3x3
@@ -153,7 +191,12 @@
 
   /** World point -> screen. Returns null when behind the near plane. */
   Camera.prototype.project = function (x, y, z, out) {
-    var m = this.vp;
+    var m = this.vp, v = this._v;
+    // Depth along the view axis. In perspective this is the clip w, but an
+    // orthographic (or blended) matrix has a constant w, and the painter's
+    // sort and the fog both need the real distance.
+    var d = -(v[2] * x + v[6] * y + v[10] * z + v[14]);
+    if (d <= 0.0001) return null;
     var cw = m[3] * x + m[7] * y + m[11] * z + m[15];
     if (cw <= 0.0001) return null;
     var cx = m[0] * x + m[4] * y + m[8] * z + m[12];
@@ -162,9 +205,9 @@
     out = out || {};
     out.x = (cx * iw * 0.5 + 0.5) * this.viewport.w;
     out.y = (0.5 - cy * iw * 0.5) * this.viewport.h;
-    out.w = cw;
+    out.w = d;
     // Handy for sizing billboards: pixels per world unit at that depth.
-    out.scale = (this.viewport.h * 0.5 / Math.tan(this.fov / 2)) * iw;
+    out.scale = this.viewport.h * 0.5 * this.py * iw;
     return out;
   };
 

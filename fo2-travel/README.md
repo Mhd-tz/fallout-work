@@ -127,9 +127,9 @@ api->Show(view);
 api->Focus(view);           // F3 in the stock example plugin
 ```
 
-The view reads `window.updateFocusLabel(...)`, so the top-right badge shows
-INPUT FOCUS / NO INPUT FOCUS automatically. Manual driving is disabled while
-unfocused, and the view drops back to survey mode.
+The view reads `window.updateFocusLabel(...)`. There is no badge for it in
+the top bar any more; losing focus in drive mode drops the view back to
+survey mode, which is the only visible effect.
 
 ---
 
@@ -140,7 +140,7 @@ with `type`, `v` (protocol version) and `t` (timestamp ms).
 
 | `type` | when | payload |
 |---|---|---|
-| `ui.ready` | view finished booting | `ui`, `version` |
+| `ui.ready` | view finished booting | `ui`, `version`, `theme`, `view` (the remembered palette and camera) |
 | `ui.close` | player pressed EXIT/ESC | - |
 | `travel.plot` | destination selected (not committed) | `destId`, `destName`, `marker`, `x`, `z`, `hours`, `miles`, `fuel`, `risk` |
 | `travel.begin` | player hit AUTO-TRAVEL | as above + `minutes`, `waypoints[]` (≤24 sparse points) |
@@ -154,6 +154,9 @@ with `type`, `v` (protocol version) and `t` (timestamp ms).
 | `waypoint.set` | pin dropped for manual driving | `x`, `z`, `destId?`, `destName?` |
 | `map.discover` | new location found while driving | `id`, `x`, `z` |
 | `location.enter` | player pressed ENTER at a site | `locId`, `name`, `marker`, `kind`, `region`, `index`, `x`, `z`, `services[]` |
+| `location.leave` | player pressed LEAVE while the map was locked inside a site (mock / fallback path) | `locId`, `marker` |
+| `ui.theme` | palette switched (top bar, `C`, or by the game) | `theme` (`sand`/`green`) |
+| `ui.view` | camera switched (top bar, `V`, or by the game) | `view` (`3d`/`2d`) |
 | `log` | diagnostics | `message` |
 
 **`travel.complete` and `location.enter` are the two that matter.** The UI
@@ -283,14 +286,15 @@ api->Invoke(view, "fo2Message('{\"type\":\"ui.show\"}')");
 
 | `type` | effect in the view |
 |---|---|
-| `state.sync` / `state.patch` | merge `{ player:{x,z,heading}, vehicle:{fuel,condition}, clock:{year,month,day,hour}, here, discovered:[ids], enterable:[ids]/{id:bool}, theme, weather }` |
+| `state.sync` / `state.patch` | merge `{ player:{x,z,heading}, vehicle:{fuel,condition}, clock:{year,month,day,hour}, here, discovered:[ids], enterable:[ids]/{id:bool}, theme, view, weather }` |
 | `travel.approve` | `{destId}` - route confirmed, the drive plays out |
 | `travel.deny` | `{destId, reason}` - aborts with a banner |
 | `travel.arrived` | game finished its `MoveTo` |
 | `encounter.spawn` | force an encounter: `{encType, name, text, hostile, hazard, x, z}` |
 | `encounter.result` | `{id, outcome:"win"/"flee"/"loss", damage, caps}` - resumes or abandons the route |
 | `loc.unlock` | `{id}` reveals a location and its fog |
-| `location.entered` | `{locId}` - ENTER accepted; the view closes itself |
+| `location.entered` | `{locId}` - ENTER accepted; the view closes itself and locks the car as *inside* until `location.exited`, a `state.sync`, or the player's LEAVE |
+| `location.exited` | `{locId}` - the player is back at the car; the map unlocks |
 | `location.denied` | `{locId, reason, permanent?}` - refused; `reason` is shown, `permanent` greys the site out for the session |
 | `loc.enterable` | `{id, enterable}` - mark one site as having an interior or not |
 | `clock.set` | `{year, month, day, hour, minute}` |
@@ -400,7 +404,9 @@ URL hash flags jump straight to a state:
 | `#storm` | rain/storm weather |
 | `#fps` | on-canvas frame-cost readout |
 | `#quality=0..3` | lock a terrain quality tier instead of auto-tuning |
-| - | the theme is remembered between loads; press `C` or use the top-bar switch |
+| `#theme=green` | start on the terminal palette (otherwise the last choice is remembered; `C` or the top-bar switch flips it) |
+| `#view=2d` | start on the flat chart (also remembered; `V` or the top-bar switch flips it) |
+| `#blend=0.5` | hold the camera half way between terrain and chart, to inspect the tilt |
 | `#drive&boost&speed=34` | driving with the overcharge held open (dev only) |
 | `#drive&at=600,513&heading=0.64` | drop the car at a world position, facing a bearing |
 | `#drive&pitch=0.25&dist=110` | override the chase camera, e.g. to inspect a bridge |
@@ -408,7 +414,7 @@ URL hash flags jump straight to a state:
 Controls: **LMB** pan · **RMB** rotate/tilt · **wheel** zoom · **TAB** drive
 mode · **WASD** drive · **SHIFT** boost · **SPACE** brake (or pause in survey)
 · **ENTER** auto-travel · **P** pin & drive · **F** headlights · **R** recenter
-· **0–3** time rate · **C** sand/terminal · **E** enter the site you are parked at · **ESC** clear/abort/exit.
+· **0–3** time rate · **C** sand/terminal · **V** terrain/chart · **E** enter the site you are parked at · **ESC** clear/abort/exit.
 
 The time-rate control folds away in manual driving - the clock there follows
 the wheels, not a multiplier - and folds back in on the way out.
@@ -587,11 +593,13 @@ not offer.
 
 ## 11. Interface notes
 
-**Mode** is a two-position switch, not a label: survey and drive were already
+**Mode** is a two-position switch, not a label: MAP and DRIVE were already
 the thing the player changes most often, so the readout may as well be the
-control that changes it (`TAB` still works). While a course is running the
-switch is replaced by an AUTO-TRAVEL state, because the mode is not the
-player's to pick until they abort.
+control that changes it (`TAB` still works). The code still calls the map
+mode `survey`; only the label changed, because "survey" meant nothing to a
+player. While a course is running the switch is replaced by an AUTO-TRAVEL
+state, because the mode is not the player's to pick until they abort; CLEAR
+PLOT in the route panel (or `ESC`) becomes ABORT TRAVEL and cancels the drive.
 
 **Both side panels fold** to their header bar via the chevron in the header;
 the header keeps its count / range readout so a folded panel still tells you
@@ -602,8 +610,54 @@ counters immediately reclaim the space.
 with the place's name and what it offers: `E` or the button hands off to the
 game (§4). It is offered three ways - the prompt, `E`, and the route panel's
 primary action, which becomes *Enter <NAME>* when the site you have selected is
-the one you are standing on. Driving more than 18 units away drops it again, so
-it never claims you can walk into a settlement you left ten miles back.
+the one you are standing on. Rolling within 24 units of a site parks you at
+it, in drive mode or by auto-travel; driving more than 32 units away drops
+it again, so it never claims you can walk into a settlement you left ten
+miles back. The two radii differ so the prompt cannot flicker at the edge.
+
+Once the game answers `location.entered` the map is **locked inside** that
+site: the car is parked, drive mode, auto-travel and pinning are refused, and
+the prompt turns into LEAVE (`E` / `ESC`). In the game the view closes at
+that point anyway; the lock is what stops the mock, or the seconds before the
+close lands, from letting the car roll off to the next town without its
+driver. The lock lifts on `location.exited`, on any `state.sync` (the game
+re-opening the map), or on LEAVE, which sends `location.leave` so a Papyrus
+only build can react.
+
+**3D / 2D** is the second two-position switch in the top bar (`V` does the
+same). It is a camera choice, not a mode: the chart is the same world seen
+straight down through an orthographic lens, so driving, auto-travel, picking
+a destination, dropping a waypoint and entering a site all work identically
+in either. Switching tilts the map up into a chart (and back) over about half
+a second rather than cutting - `R3.Camera.flat` blends the projection
+matrices while the pitch eases to vertical.
+
+The chart is built to read like the Fallout 2 world map rather than like the
+3D view from above:
+
+* **North-up, party in the middle.** The sheet never turns (RMB, `Q`/`E` do
+  nothing on it) and in drive mode the car sits dead centre with about a
+  third of the map around it, the window the original scrolled.
+* **The Vault-Tec grid.** 50-unit squares with a heavier line every four and
+  the sheet's edge, in survey green on both palettes, because it was green on
+  every Vault-Tec sheet. It is drawn in world units so it pans and zooms with
+  the ground, and it fades in with the tilt.
+* **Rings and captions.** Location markers drop their stems and boxes for a
+  ring on the site with the name underneath, sized by what kind of place it
+  is, with the map-key glyph inside so a vault and a ruin still read
+  differently; an unsurveyed one is a dashed ring captioned UNKNOWN (the map
+  no longer gives away a name the list withholds, in either view).
+* **A red arrow for the player**, screen-sized and pointed the way the car's
+  own forward vector projects, as the original drew the party. No shadow,
+  headlight cone or reactor glow under it; only the overcharge streaks stay.
+  The car model returns as the view tilts back.
+* **No scenery.** Scrub, rocks and town blocks are hidden on the chart - from
+  straight above they are black flecks and boxes - while bridges stay, since
+  they are road. Contour lines come in for both palettes, and on the sand
+  palette the hillshade is pushed so the relief reads without silhouettes.
+
+The choice persists in `localStorage` and the game can set it with
+`{ view: "2d" }` on any inbound message; `ui.view` reports the switch (§4).
 
 **The map key** lives at the foot of the location list and collapses the same
 way. The six marker glyphs carry real information - a vault is not a ruin - and

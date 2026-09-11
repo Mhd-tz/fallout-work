@@ -144,8 +144,10 @@
     layer.innerHTML = "";
     locMarkers = {};
     W.LOCATIONS.forEach(function (l) {
-      var el = makeMarker("loc", KIND_ICON[l.kind] || "■", l.name, "");
+      var el = makeMarker("loc k-" + (l.kind || "poi"), KIND_ICON[l.kind] || "■", l.name, "");
       el.dataset.id = l.id;
+      el._nm = el.querySelector(".nm");
+      el._known = null;
       el.querySelector(".body").addEventListener("click", function (e) {
         e.stopPropagation();
         if (app) app.selectLocation(l.id, true);
@@ -153,6 +155,16 @@
       layer.appendChild(el);
       locMarkers[l.id] = el;
     });
+  };
+
+  /** Chart styling for the marker layer: circles and captions, no stems. */
+  var chartOn = false;
+  HUD.chart = function (on) {
+    on = !!on;
+    if (on === chartOn) return;
+    chartOn = on;
+    var layer = $("markers");
+    if (layer) layer.className = on ? "chart" : "";
   };
 
   /** Per-frame: project every marker and park it on screen. */
@@ -174,7 +186,12 @@
       el.style.transform = "translate(" + (s.x | 0) + "px," + (s.y | 0) + "px)";
       el.style.zIndex = String(2000 + Math.round(-s.w));
 
-      var cls = "mk loc";
+      // The list already hides an unsurveyed site's name; the marker should
+      // not give it away either (the original wrote "Unknown" on the map).
+      var kn = !!known;
+      if (el._known !== kn) { el._known = kn; el._nm.textContent = kn ? l.name : "UNKNOWN"; }
+
+      var cls = "mk loc k-" + (l.kind || "poi");
       if (far) cls += " far";
       if (!known) cls += " undisc";
       if (state.selected === id) cls += " sel";
@@ -328,7 +345,8 @@
               '><span class="k">[ENTER]</span> ' +
               (enRoute ? "En Route&hellip;" : "Auto-Travel") + "</button>") +
         '<button class="act" id="actPin"><span class="k">[P]</span> Pin &amp; Drive Manually</button>' +
-        '<button class="act ghost" id="actClear"><span class="k">[ESC]</span> Clear Plot</button>' +
+        '<button class="act ghost" id="actClear"><span class="k">[ESC]</span> ' +
+          (enRoute ? "Abort Travel" : "Clear Plot") + "</button>" +
       "</div>";
 
     // Per-segment risk profile, sampled along the route.
@@ -398,7 +416,8 @@
   /**
    * The prompt that appears when the car is parked at a known location.
    * `state` is one of: "ready", "busy" (waiting on the game), "blocked"
-   * (the game says this place has no interior yet).
+   * (the game says this place has no interior yet), "inside" (the player is
+   * in there and the button brings them back out).
    */
   var KIND_LABEL = {
     town: "Settlement", vault: "Vault", base: "Military site",
@@ -422,7 +441,8 @@
     sub = note || sub;
     if (HUD._enterSub !== sub) { $("ebSub").textContent = sub; HUD._enterSub = sub; }
     $("ebGoLabel").textContent =
-      state === "busy" ? "Standby\u2026" : state === "blocked" ? "Unavailable" : "Enter";
+      state === "busy" ? "Standby\u2026" : state === "blocked" ? "Unavailable"
+      : state === "inside" ? "Leave" : "Enter";
     var cls = "panel on" + (state === "ready" ? "" : " " + state);
     if (bar.className !== cls) bar.className = cls;
   };
@@ -462,11 +482,9 @@
     $("keygrid").innerHTML = html;
   };
 
-  HUD.focus = function (on) {
-    var b = $("focusbadge");
-    b.className = on ? "on" : "";
-    $("focustext").textContent = on ? "INPUT FOCUS" : "NO INPUT FOCUS · PRESS F3";
-  };
+  /* PrismaUI focus state. There is no badge for it any more; the hook stays
+   * so the bridge has somewhere to report, and so a future cue can use it. */
+  HUD.focus = function (on) { HUD.focused = !!on; };
 
   HUD.speedButtons = function (idx) {
     for (var i = 0; i <= 3; i++) {

@@ -824,6 +824,10 @@
     var fogNear = maxDist * 0.45, fogFar = maxDist * 1.05;
     var invS = 1 / (step * CS);
     var term = !!(global.THEME && global.THEME.isTerminal());
+    // On the flat chart the contours carry the relief for both palettes, the
+    // way they do on a printed topo sheet, so they come in as the view tilts.
+    var flat = (o.flat || 0) > 0.5;
+    var contour = term || flat;
     // cn index -> quad corner: bit0 = +i (v10), bit1 = +j (v01).
 
     var seams = o.seams !== false;
@@ -878,6 +882,11 @@
           var clam = (cX * sunX + sunY + cZ * sunZ) / cl;
           var ck = amb + Math.max(0, clam) * (1 - amb) * 1.62 * inten;
           if (clam < 0) ck *= 1 + clam * 0.55;
+          // Straight down there are no silhouettes, so the relief has to
+          // come from the shading alone: push it, the way a satellite
+          // sheet's hillshade is pushed. Not on the terminal, whose ramp
+          // already blows the lit slopes out to full phosphor.
+          if (flat && !term) ck = 0.62 + (ck - 0.62) * 1.55;
           cornerK[cn] = ck;
         }
         // cn bit0 = +i, bit1 = +j, matching v00/v10/v01/v11 below.
@@ -975,8 +984,8 @@
       if (seams) { ctx.strokeStyle = style; ctx.stroke(); }
 
       // Topographic elevation contour lines (Hearts of Iron IV cartography)
-      if (isSurv && !mW[ci] && (qw > (term ? 7 : 14) || qh > (term ? 7 : 14))) {
-        var C_INT = term ? 4.0 : 6.0;
+      if (isSurv && !mW[ci] && (qw > (contour ? 7 : 14) || qh > (contour ? 7 : 14))) {
+        var C_INT = contour ? 4.0 : 6.0;
         var c0 = Math.floor(minH / C_INT), c1 = Math.floor(maxH / C_INT);
         if (c0 !== c1 && minH > 1.2) {
           var targetH = c1 * C_INT;
@@ -1005,6 +1014,11 @@
             if (term) {
               ctx.strokeStyle = isMaj ? "rgba(120, 255, 150, 0.55)"
                                       : "rgba(80, 210, 110, 0.26)";
+              ctx.lineWidth = isMaj ? 1.4 : 0.9;
+            } else if (flat) {
+              ctx.strokeStyle = isMaj
+                ? (o.night ? "rgba(90, 115, 145, 0.55)" : "rgba(60, 46, 26, 0.52)")
+                : (o.night ? "rgba(60, 82, 110, 0.30)"  : "rgba(76, 62, 40, 0.30)");
               ctx.lineWidth = isMaj ? 1.4 : 0.9;
             } else {
               ctx.strokeStyle = isMaj

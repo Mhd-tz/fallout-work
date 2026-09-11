@@ -46,6 +46,9 @@
   --red-wash:   rgba(224, 87, 74, 0.06);
   --glow:      0 0 0 rgba(0, 0, 0, 0);
   --scan:      0.16;
+  /* The chart's survey green: Vault-Tec drew it green on every sheet. */
+  --chart:      #6ed07a;
+  --chart-dim:  rgba(110, 208, 122, 0.55);
 }
 
 :root[data-theme="green"] {
@@ -77,6 +80,8 @@
   --red-wash:   rgba(255, 138, 60, 0.07);
   --glow:      0 0 6px rgba(110, 255, 140, 0.45);
   --scan:      0.30;
+  --chart:      #7dff98;
+  --chart-dim:  rgba(125, 255, 152, 0.6);
 }
 
 :root {
@@ -261,7 +266,7 @@ html, body {
 #modeswitch.drive #msDrive i { box-shadow: 0 0 7px var(--blue); }
 /* Theme switch - the same two-position control as the mode switch, so the
    two read as a pair rather than as two different kinds of widget. */
-#themeswitch {
+#themeswitch, #viewswitch {
   display: flex; align-items: center; gap: 4px; padding: 0 12px;
   border-left: 1px solid var(--line);
 }
@@ -277,12 +282,16 @@ html, body {
 .th i { width: 6px; height: 6px; background: currentColor; flex: 0 0 auto; }
 .th:hover { color: var(--text-dim); }
 #themeswitch.sand  #thSand,
-#themeswitch.green #thGreen {
+#themeswitch.green #thGreen,
+#viewswitch.persp  #vw3d,
+#viewswitch.flat   #vw2d {
   color: var(--amber); border-color: var(--line-hot);
   background: rgba(255, 255, 255, 0.07);
 }
 #themeswitch.sand  #thSand i,
-#themeswitch.green #thGreen i { box-shadow: 0 0 7px currentColor; }
+#themeswitch.green #thGreen i,
+#viewswitch.persp  #vw3d i,
+#viewswitch.flat   #vw2d i { box-shadow: 0 0 7px currentColor; }
 .thkey {
   font-family: var(--data); font-size: 12px; color: var(--text-mute);
   border: 1px solid var(--line); padding: 2px 4px 1px; margin-left: 3px;
@@ -420,15 +429,6 @@ html, body {
 }
 .tbtn:hover { background: rgba(255, 182, 66, 0.08); color: var(--amber); }
 .tbtn.danger:hover { background: rgba(224, 87, 74, 0.15); color: var(--red); }
-
-#focusbadge {
-  display: flex; align-items: center; gap: 7px; padding: 0 12px;
-  border-left: 1px solid var(--line); font-size: 12px; letter-spacing: 0.6px;
-  color: var(--text-mute);
-}
-#focusbadge .dotm { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
-#focusbadge.on { color: var(--green); }
-#focusbadge.on .dotm { background: var(--green); box-shadow: 0 0 6px var(--green); }
 
 /* --- left panel: destination list ---------------------------------------- */
 #left {
@@ -656,6 +656,46 @@ html, body {
 .mk.far .ico { border-right: none; }
 .mk.dest .body { border-color: var(--green); }
 
+/* --- chart markers ----------------------------------------------------------
+ * On the 2D sheet the markers become what Fallout 2 drew: a ring on the site
+ * with the name captioned underneath, no stem and no box. The map-key glyph
+ * sits inside the ring so a vault and a ruin still read differently, and the
+ * ring's size says how big a place it is.
+ */
+#markers.chart .mk .stem { display: none; }
+#markers.chart .mk .body {
+  bottom: auto; top: 0; transform: translate(-50%, -50%);
+  flex-direction: column; align-items: center;
+  background: none; border: none;
+}
+#markers.chart .mk .body:hover { background: none; }
+#markers.chart .mk .ico {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--chart); border-right-color: var(--chart);
+  background: rgba(0, 0, 0, 0.22); color: var(--chart);
+  font-size: 13px; line-height: 1;
+  box-shadow: 0 0 8px var(--chart-dim), inset 0 0 6px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 0 4px var(--chart-dim);
+}
+#markers.chart .mk.k-town .ico, #markers.chart .mk.k-vault .ico { width: 36px; height: 36px; font-size: 15px; }
+#markers.chart .mk.k-base .ico { width: 32px; height: 32px; font-size: 15px; }
+#markers.chart .mk .txt { padding: 3px 0 0; }
+#markers.chart .mk .nm {
+  color: var(--chart); font-family: var(--ui); font-weight: 500; font-size: 12px;
+  letter-spacing: 1px; text-shadow: 0 0 6px var(--chart-dim), 0 1px 2px #000;
+}
+#markers.chart .mk.far .txt { display: block; }
+#markers.chart .mk.undisc .body { opacity: 0.6; border: none; }
+#markers.chart .mk.undisc .ico { border-style: dashed; opacity: 0.85; }
+#markers.chart .mk.undisc .nm { color: var(--chart); }
+#markers.chart .mk.sel .ico { border-color: var(--amber); color: var(--amber); box-shadow: 0 0 10px var(--amber); }
+#markers.chart .mk.sel .nm { color: var(--amber); }
+#markers.chart .mk.here .ico { background: var(--chart-dim); color: #061a08; text-shadow: none; }
+#markers.chart .mk.dest .nm { color: var(--text); }
+#markers.chart .mk.enc .ico { border-color: var(--red); color: var(--red); background: var(--red-fill); border-radius: 0; }
+#markers.chart .mk.enc .nm { color: #f0a89e; }
+#markers.chart .mk.enc .sub { display: none; }
+
 /* encounter pins */
 .mk.enc .body { border-color: var(--red); background: rgba(40, 12, 10, 0.92); }
 .mk.enc .ico { color: var(--red); background: var(--red-fill); border-right-color: var(--red-edge); }
@@ -850,6 +890,12 @@ html, body {
 #enterbar.blocked .eb-ico { border-color: var(--line); color: var(--text-mute);
   background: none; }
 #enterbar.blocked .eb-name { color: var(--text-dim); }
+/* Inside: the prompt turns into the way back out. */
+#enterbar.inside { border-color: var(--green-edge); }
+#enterbar.inside .eb-ico { border-color: var(--green-edge); color: var(--green); background: var(--green-fill); }
+#enterbar.inside .eb-name { color: var(--green); }
+#enterbar.inside .eb-go { border-color: var(--green-edge); color: var(--green); background: var(--green-fill); }
+#enterbar.inside .eb-go:hover { background: var(--green); color: var(--bg); }
 
 #travelbar {
   position: absolute; left: 50%; bottom: 128px; width: 520px; z-index: 28;

@@ -125,7 +125,9 @@
       skyTop: [14, 20, 34], skyBot: [58, 62, 72],
       water:  [40, 96, 128], waterLit: [120, 190, 220],
       road:   [30, 27, 25],  roadLit: [74, 66, 58], paint: [242, 220, 158],
-      route:  [255, 252, 240]
+      route:  [255, 252, 240],
+      // The survey grid is green on every Vault-Tec sheet, sand or not.
+      grid:   [70, 190, 90]
     },
     green: {
       skyTop: [2, 10, 6],   skyBot: [8, 34, 16],
@@ -133,7 +135,8 @@
       // Darker than the crushed ground it lies on, so the carriageway reads
       // as a channel and the markings on it read as light.
       road:   [3, 12, 6],    roadLit: [10, 40, 18], paint: [140, 255, 155],
-      route:  [210, 255, 210]
+      route:  [210, 255, 210],
+      grid:   [110, 240, 130]
     }
   };
   THEME.scene = SCENE.sand;
