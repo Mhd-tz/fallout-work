@@ -649,11 +649,23 @@
   // Colour strings are the one per-quad allocation, so they get cached by a
   // 15-bit quantised key instead of being rebuilt every frame.
   var colorCache = new Array(32768);
+  /**
+   * Every ground quad's fill passes through here, which makes it the one
+   * place the active theme has to recolour the terrain. Results are cached
+   * per 5-bit-per-channel bucket, so the theme has to drop the cache when it
+   * changes - see flushColors().
+   */
   function css(r, g, b) {
     var key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
     var s = colorCache[key];
     if (s === undefined) {
-      s = "rgb(" + (r & 248) + "," + (g & 248) + "," + (b & 248) + ")";
+      var TH = global.THEME;
+      if (TH) {
+        var c = TH.map(r & 248, g & 248, b & 248);
+        s = "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
+      } else {
+        s = "rgb(" + (r & 248) + "," + (g & 248) + "," + (b & 248) + ")";
+      }
       colorCache[key] = s;
     }
     return s;
@@ -811,6 +823,7 @@
     var fogR = fogC[0], fogG = fogC[1], fogB = fogC[2];
     var fogNear = maxDist * 0.45, fogFar = maxDist * 1.05;
     var invS = 1 / (step * CS);
+    var term = !!(global.THEME && global.THEME.isTerminal());
     // cn index -> quad corner: bit0 = +i (v10), bit1 = +j (v01).
 
     var seams = o.seams !== false;
@@ -962,8 +975,8 @@
       if (seams) { ctx.strokeStyle = style; ctx.stroke(); }
 
       // Topographic elevation contour lines (Hearts of Iron IV cartography)
-      if (isSurv && !mW[ci] && (qw > 14 || qh > 14)) {
-        var C_INT = 6.0;
+      if (isSurv && !mW[ci] && (qw > (term ? 7 : 14) || qh > (term ? 7 : 14))) {
+        var C_INT = term ? 4.0 : 6.0;
         var c0 = Math.floor(minH / C_INT), c1 = Math.floor(maxH / C_INT);
         if (c0 !== c1 && minH > 1.2) {
           var targetH = c1 * C_INT;
@@ -986,10 +999,19 @@
           }
           if (cPts.length >= 2) {
             var isMaj = (c1 % 4 === 0);
-            ctx.strokeStyle = isMaj
-              ? (o.night ? "rgba(70, 95, 125, 0.40)" : "rgba(50, 42, 28, 0.40)")
-              : (o.night ? "rgba(45, 65, 90, 0.22)"  : "rgba(70, 60, 42, 0.22)");
-            ctx.lineWidth = isMaj ? 1.3 : 0.8;
+            // On a terminal the ground is crushed almost to black, so the
+            // contours stop being a subtle cartographic touch and become how
+            // you read the relief at all - they get lit accordingly.
+            if (term) {
+              ctx.strokeStyle = isMaj ? "rgba(120, 255, 150, 0.55)"
+                                      : "rgba(80, 210, 110, 0.26)";
+              ctx.lineWidth = isMaj ? 1.4 : 0.9;
+            } else {
+              ctx.strokeStyle = isMaj
+                ? (o.night ? "rgba(70, 95, 125, 0.40)" : "rgba(50, 42, 28, 0.40)")
+                : (o.night ? "rgba(45, 65, 90, 0.22)"  : "rgba(70, 60, 42, 0.22)");
+              ctx.lineWidth = isMaj ? 1.3 : 0.8;
+            }
             ctx.beginPath();
             ctx.moveTo(cPts[0].x, cPts[0].y);
             ctx.lineTo(cPts[1].x, cPts[1].y);
@@ -1035,6 +1057,8 @@
     surfaceAt: surfaceAt,
     onDeck: onDeck,
     deckAt: deckAt,
+    /** Drop cached fills - the theme changed under them. */
+    flushColors: function () { colorCache = new Array(32768); },
     setDecks: setDecks,
     baseHeight: baseHeight,
     hToRelief: hToRelief,

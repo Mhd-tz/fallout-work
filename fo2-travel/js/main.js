@@ -32,6 +32,10 @@
     hidden: false,
     travel: null,
     pendingEnc: null,
+    // id -> false where the game has told us no interior exists yet. Absent
+    // means "assume yes": the view must not hide a door the mod does have.
+    enterable: {},
+    entering: null,
     car: null
   };
   var TIME_SCALES = [0, 1, 3, 8];
@@ -95,6 +99,8 @@
           HUD.clock();
           HUD.mode("survey");
           HUD.buildKey();
+          $id("themeswitch").className = THEME.restore();
+          refreshEnterPrompt();
           HUD.focus(B.focused);
           HUD.toast("NAVCOM ONLINE · " + W.LOCATIONS.length + " SITES ON FILE", "good");
           applyDevFlags();
@@ -226,6 +232,33 @@
 
     B.on("clock.set", function (m) { TR.Clock.set(m); HUD.clock(); });
 
+    // The game took the hand-off: the cell is loading, so this screen is done.
+    B.on("location.entered", function (m) {
+      var loc = W.loc(m.locId) || hereLoc();
+      clearEntering();
+      HUD.enterPrompt(loc || null, "busy", "Loading\u2026");
+      HUD.toast("ENTERING " + (loc ? loc.name : "LOCATION"), "good");
+      controller.exit();
+    });
+
+    // Refused - over-encumbered, in combat, nothing built there. Give the
+    // player the button back and tell them why.
+    B.on("location.denied", function (m) {
+      clearEntering();
+      if (m.locId && m.permanent) state.enterable[m.locId] = false;
+      refreshEnterPrompt();
+      refreshDossier();
+      HUD.toast("CANNOT ENTER \u00b7 " +
+                String(m.reason || "refused").toUpperCase(), "warn");
+    });
+
+    B.on("loc.enterable", function (m) {
+      if (!m.id) return;
+      state.enterable[m.id] = m.enterable !== false;
+      refreshEnterPrompt();
+      refreshDossier();
+    });
+
     B.on("travel.approve", function (m) {
       if (!state.travel || state.travel.dest !== m.destId) return;
       state.travel.approved = true;
@@ -285,6 +318,8 @@
   /** Apply a state.sync / state.patch payload from the game. */
   function applyState(m) {
     if (m.clock) { TR.Clock.set(m.clock); HUD.clock(); }
+    if (m.theme) setTheme(m.theme);
+    if (m.enterable) applyEnterable(m.enterable);
     if (m.vehicle) {
       if (m.vehicle.fuel !== undefined) car.fuel = m.vehicle.fuel;
       if (m.vehicle.condition !== undefined) car.condition = m.vehicle.condition;
@@ -352,6 +387,72 @@
     tween.tz = (minZ + maxZ) / 2 + 40;
     tween.dist = Math.max(260, Math.min(1150, Math.max(maxX - minX, maxZ - minZ) * 1.3 + 140));
     tween.on = true;
+  }
+
+  /* =========================================================================
+   * ENTERING A LOCATION
+   *
+   * The hand-off out of this screen. The view has got the player to the gate;
+   * loading the cell and moving them is the game's job, so all this does is
+   * ask and then wait to be told what happened.
+   * ====================================================================== */
+  var ENTER_TIMEOUT = 6000;
+
+  function hereLoc() {
+    if (!state.here || state.travel) return null;
+    if (state.mode === "travel") return null;
+    if (HUD.encounterOpen()) return null;
+    var l = W.loc(state.here);
+    return (l && state.discovered[l.id]) ? l : null;
+  }
+
+  /** Keep the arrival prompt in step with where the car actually is. */
+  function refreshEnterPrompt() {
+    var loc = hereLoc();
+    if (!loc) { HUD.enterPrompt(null); return; }
+    if (state.entering && state.entering.id === loc.id) {
+      HUD.enterPrompt(loc, "busy", "Handing over to the game\u2026");
+    } else if (state.enterable[loc.id] === false) {
+      HUD.enterPrompt(loc, "blocked", "No interior built for this site yet");
+    } else {
+      HUD.enterPrompt(loc, "ready");
+    }
+  }
+
+  function enterLocation() {
+    var loc = hereLoc();
+    if (!loc) { HUD.toast("NOT AT A LOCATION", "warn"); return; }
+    if (state.entering) return;
+    if (state.enterable[loc.id] === false) {
+      HUD.toast("NO INTERIOR BUILT FOR " + loc.name, "warn");
+      return;
+    }
+    var idx = W.indexOf(loc.id);
+    state.entering = { id: loc.id, at: Date.now() };
+    refreshEnterPrompt();
+    if (state.selected) refreshDossier();
+    B.enterLocation(loc, idx);
+    HUD.toast("ENTERING " + loc.name + "\u2026");
+
+    // If the game never answers, give the player their button back rather
+    // than leaving the screen stuck on "standby".
+    state.entering.timer = setTimeout(function () {
+      if (!state.entering || state.entering.id !== loc.id) return;
+      state.entering = null;
+      refreshEnterPrompt();
+      if (state.selected) refreshDossier();
+      HUD.toast("NO RESPONSE FROM " + loc.name + " \u00b7 TRY AGAIN", "warn");
+    }, ENTER_TIMEOUT);
+  }
+
+  function clearEntering() {
+    if (state.entering && state.entering.timer) clearTimeout(state.entering.timer);
+    state.entering = null;
+  }
+
+  function refreshDossier() {
+    if (!state.selected || !state.est) return;
+    HUD.dossier(W.loc(state.selected), state.est, state);
   }
 
   /* =========================================================================
@@ -677,6 +778,33 @@
 
   function $id(id) { return document.getElementById(id); }
 
+  /** { id: bool } or [ids] - which locations the mod has interiors for. */
+  function applyEnterable(map) {
+    if (Array.isArray(map)) {
+      W.LOCATIONS.forEach(function (l) { state.enterable[l.id] = false; });
+      map.forEach(function (id) { state.enterable[id] = true; });
+    } else {
+      for (var k in map) if (map.hasOwnProperty(k)) {
+        state.enterable[k] = map[k] !== false;
+      }
+    }
+    refreshEnterPrompt();
+    refreshDossier();
+  }
+
+  /**
+   * Sand or terminal green. Both the chrome (CSS variables) and the world
+   * (THEME.map, via TERRAIN.css and R3.shade) key off this, so one call
+   * repaints everything on the next frame.
+   */
+  function setTheme(name) {
+    var applied = THEME.set(name);
+    $id("themeswitch").className = applied;
+    B.send("ui.theme", { theme: applied });
+    HUD.toast(applied === "green" ? "VAULT-TEC TERMINAL" : "CARTOGRAPHIC \u00b7 SAND");
+    return applied;
+  }
+
   /** Collapse a side panel down to its header bar, and back. */
   function fold(btnId, panelId) {
     var btn = $id(btnId), panel = $id(panelId);
@@ -705,6 +833,7 @@
       HUD.hint('<kbd>LMB</kbd> pan &nbsp; <kbd>RMB</kbd> rotate &nbsp; <kbd>WHEEL</kbd> zoom &nbsp; <kbd>TAB</kbd> drive &nbsp; <kbd>ENTER</kbd> travel');
     }
     tween.on = false;
+    refreshEnterPrompt();
   }
 
   function recenter(instant) {
@@ -878,7 +1007,17 @@
     { h: 24.0, c: [[3, 6, 12],   [7, 16, 26],  [16, 26, 38]] }
   ];
 
-  function rgbStr(c) { return "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")"; }
+  /**
+   * Every colour this module paints by hand goes through here, so switching
+   * themes recolours the sky, the water, the roads and the route line along
+   * with the terrain and the meshes. Alpha passes straight through - only the
+   * hue is the theme's business.
+   */
+  function TC(r, g, b, a) {
+    return a === undefined ? THEME.rgb(r, g, b) : THEME.rgba(r, g, b, a);
+  }
+
+  function rgbStr(c) { return THEME.rgb(c[0] | 0, c[1] | 0, c[2] | 0); }
 
   function skyAt(hour) {
     var a = SKY_KEYS[0], b = SKY_KEYS[SKY_KEYS.length - 1];
@@ -993,10 +1132,10 @@
       // Shimmering Ionized Radioactive Aurora / Airglow
       var flowT = worldTime * 0.4;
       var aurGrad = ctx.createLinearGradient(0, 0, w, 0);
-      aurGrad.addColorStop(0, "rgba(40, 180, 120, 0)");
-      aurGrad.addColorStop(0.3, "rgba(50, 220, 150, 0.08)");
-      aurGrad.addColorStop(0.6, "rgba(40, 160, 210, 0.09)");
-      aurGrad.addColorStop(1, "rgba(50, 220, 150, 0)");
+      aurGrad.addColorStop(0, TC(40,180,120,0));
+      aurGrad.addColorStop(0.3, TC(50,220,150,0.08));
+      aurGrad.addColorStop(0.6, TC(40,160,210,0.09));
+      aurGrad.addColorStop(1, TC(50,220,150,0));
       ctx.fillStyle = aurGrad;
       ctx.beginPath();
       ctx.moveTo(0, horizon * 0.45);
@@ -1033,9 +1172,9 @@
         // Glowing Moon
         var mR = 14;
         var mHalo = ctx.createRadialGradient(sunSp.x, sunSp.y, mR * 0.5, sunSp.x, sunSp.y, mR * 4.5);
-        mHalo.addColorStop(0, "rgba(195, 220, 255, 0.45)");
-        mHalo.addColorStop(0.5, "rgba(160, 195, 240, 0.15)");
-        mHalo.addColorStop(1, "rgba(160, 195, 240, 0)");
+        mHalo.addColorStop(0, TC(195,220,255,0.45));
+        mHalo.addColorStop(0.5, TC(160,195,240,0.15));
+        mHalo.addColorStop(1, TC(160,195,240,0));
         ctx.fillStyle = mHalo;
         ctx.beginPath(); ctx.arc(sunSp.x, sunSp.y, mR * 4.5, 0, 6.2832); ctx.fill();
 
@@ -1044,7 +1183,7 @@
         ctx.beginPath(); ctx.arc(sunSp.x, sunSp.y, mR, 0, 6.2832); ctx.fill();
 
         // Maria / crater texture
-        ctx.fillStyle = "rgba(110, 135, 165, 0.32)";
+        ctx.fillStyle = TC(110,135,165,0.32);
         ctx.beginPath();
         ctx.arc(sunSp.x - 3, sunSp.y - 2, 4.5, 0, 6.2832);
         ctx.arc(sunSp.x + 4, sunSp.y + 3, 3.5, 0, 6.2832);
@@ -1079,10 +1218,10 @@
     }
 
     // 4. Distant Mountain Silhouettes along the Horizon
-    var mtnCol = night ? "rgba(12, 18, 28, 0.92)"
-               : (state.weather === "storm") ? "rgba(35, 45, 55, 0.9)"
-               : (hour < 7.5 || hour > 17) ? "rgba(75, 40, 48, 0.85)"
-               : "rgba(105, 112, 105, 0.75)";
+    var mtnCol = night ? TC(12,18,28,0.92)
+               : (state.weather === "storm") ? TC(35,45,55,0.9)
+               : (hour < 7.5 || hour > 17) ? TC(75,40,48,0.85)
+               : TC(105,112,105,0.75);
     ctx.fillStyle = mtnCol;
     ctx.beginPath();
     ctx.moveTo(0, horizon + 2);
@@ -1101,7 +1240,7 @@
               : "rgba(197, 199, 180,";
     hz.addColorStop(0, hzCol + "0.95)");
     hz.addColorStop(0.3, hzCol + "0.60)");
-    hz.addColorStop(1, "rgba(0,0,0,0)");
+    hz.addColorStop(1, TC(0,0,0,0));
     ctx.fillStyle = hz;
     ctx.fillRect(0, horizon - 3, w, h * 0.18 + 3);
   }
@@ -1155,29 +1294,29 @@
 
         // Layer 1: Silt / wet sand riverbanks
         ctx.setLineDash([]);
-        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(16, 28, 38, 0.70)" : "rgba(80, 72, 50, 0.55)";
+        ctx.strokeStyle = TR.Clock.isNight() ? TC(16,28,38,0.70) : TC(80,72,50,0.55);
         ctx.lineWidth = wide * 1.9;
         strokePts(run);
 
         // Layer 2: Deep channel bed
-        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(10, 32, 52, 0.90)" : "rgba(20, 60, 74, 0.88)";
+        ctx.strokeStyle = TR.Clock.isNight() ? TC(10,32,52,0.90) : TC(20,60,74,0.88);
         ctx.lineWidth = wide * 1.3;
         strokePts(run);
 
         // Layer 3: Vibrant water surface
-        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(24, 75, 110, 0.85)" : "rgba(38, 120, 145, 0.82)";
+        ctx.strokeStyle = TR.Clock.isNight() ? TC(24,75,110,0.85) : TC(38,120,145,0.82);
         ctx.lineWidth = wide * 0.85;
         strokePts(run);
 
         // Layer 4: Marching downstream ripples
-        ctx.strokeStyle = TR.Clock.isNight() ? "rgba(130, 195, 235, 0.45)" : "rgba(195, 235, 252, 0.58)";
+        ctx.strokeStyle = TR.Clock.isNight() ? TC(130,195,235,0.45) : TC(195,235,252,0.58);
         ctx.lineWidth = Math.max(1.1, wide * 0.32);
         ctx.setLineDash([wide * 2.2, wide * 3.6]);
         ctx.lineDashOffset = -flow * wide * 4.2;
         strokePts(run);
 
         // Layer 5: Sparkling foam & flow glints
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.68)";
+        ctx.strokeStyle = TC(255,255,255,0.68);
         ctx.lineWidth = Math.max(0.8, wide * 0.16);
         ctx.setLineDash([wide * 0.7, wide * 6.5]);
         ctx.lineDashOffset = -flow * wide * 2.5 + wide * 1.8;
@@ -1194,7 +1333,7 @@
       var ly = T.hToRelief(wl) + 0.5;
 
       // Lake shore sand ring
-      ctx.strokeStyle = TR.Clock.isNight() ? "rgba(20, 32, 42, 0.6)" : "rgba(165, 145, 105, 0.45)";
+      ctx.strokeStyle = TR.Clock.isNight() ? TC(20,32,42,0.6) : TC(165,145,105,0.45);
       ctx.lineWidth = Math.max(2, 1600 / cam.dist);
       R3.groundCircle(ctx, cam, lk.x, lk.z, lk.r * 1.02, 32, ly);
       ctx.stroke();
@@ -1203,8 +1342,8 @@
         var rr = lk.r * (0.28 + b * 0.22) + Math.sin(flow * 0.8 + b * 1.2) * 2.5;
         var alpha = (0.22 - b * 0.04);
         ctx.strokeStyle = TR.Clock.isNight()
-          ? "rgba(110, 180, 230, " + alpha.toFixed(3) + ")"
-          : "rgba(180, 230, 250, " + alpha.toFixed(3) + ")";
+          ? TC(110,180,230,alpha.toFixed(3))
+          : TC(180,230,250,alpha.toFixed(3));
         ctx.lineWidth = Math.max(1, 1100 / cam.dist);
         R3.groundCircle(ctx, cam, lk.x, lk.z, rr, 30, ly);
         ctx.stroke();
@@ -1281,13 +1420,15 @@
     var day = light.dayness === undefined ? 1 : light.dayness;
     // Asphalt in daylight, near-black at night, with the shoulder a shade
     // lighter so the edge of the carriageway reads.
-    var deck = "rgb(" + Math.round(30 + day * 44) + "," +
-                        Math.round(27 + day * 39) + "," +
-                        Math.round(25 + day * 33) + ")";
-    var shoulder = "rgb(" + Math.round(36 + day * 74) + "," +
-                            Math.round(32 + day * 64) + "," +
-                            Math.round(26 + day * 46) + ")";
-    var paint = "rgba(242,220,158," + (0.34 + day * 0.52).toFixed(2) + ")";
+    // The theme owns these outright rather than having them ramped. On a
+    // terminal the ramp crushes tarmac to black along with the ground it sits
+    // on, and a road you cannot see is not a road - there, the carriageway
+    // goes darker than the terrain and the markings blaze instead.
+    var SC = THEME.scene, term = THEME.isTerminal();
+    var deck = THEME.mix(SC.road, SC.roadLit, day * 0.55);
+    var shoulder = THEME.mix(SC.road, SC.roadLit, 0.45 + day * 0.55);
+    var paint = THEME.raw(SC.paint, (term ? 0.62 + day * 0.34
+                                          : 0.34 + day * 0.52).toFixed(2));
 
     W.ROADS.forEach(function (r) {
       var pts = T.roadPoints(r);
@@ -1321,12 +1462,11 @@
         }
         ctx.globalAlpha = 1 - k;
         ctx.lineCap = ctx.lineJoin = "round";
-        ctx.strokeStyle = "rgba(20,17,14,0.85)";
+        ctx.strokeStyle = THEME.raw(SC.road, 0.85);
         ctx.lineWidth = Math.max(3, px * 0.85 + 1.8);
         strokeGaps(thin);
-        ctx.strokeStyle = r.w >= 0.9 ? "rgba(232,152,72,0.95)"
-                        : r.w >= 0.6 ? "rgba(200,134,66,0.88)"
-                                     : "rgba(158,124,76,0.75)";
+        ctx.strokeStyle = THEME.raw(SC.paint,
+          r.w >= 0.9 ? 0.95 : r.w >= 0.6 ? 0.82 : 0.62);
         ctx.lineWidth = Math.max(1.4, px * 0.42);
         strokeGaps(thin);
         ctx.globalAlpha = 1;
@@ -1429,10 +1569,10 @@
 
     // casing
     ctx.lineJoin = ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(0,0,0,0.78)";
+    ctx.strokeStyle = TC(0,0,0,0.78);
     ctx.lineWidth = 10.5;
     strokePts(pts);
-    ctx.strokeStyle = "rgba(255,244,214,0.22)";
+    ctx.strokeStyle = TC(255,244,214,0.22);
     ctx.lineWidth = 6.5;
     strokePts(pts);
 
@@ -1453,7 +1593,7 @@
     // marching ants toward the destination
     ctx.setLineDash([9, 11]);
     ctx.lineDashOffset = -(Date.now() * 0.02) % 20;
-    ctx.strokeStyle = "rgba(255,252,240,0.98)";
+    ctx.strokeStyle = TC(255,252,240,0.98);
     ctx.lineWidth = 2.6;
     strokePts(pts);
     ctx.setLineDash([]);
@@ -1469,7 +1609,7 @@
       }
       if (done.length > 1) {
         var dp = projectOnGround(done, 1.6);
-        ctx.strokeStyle = "rgba(255,182,66,0.98)";
+        ctx.strokeStyle = TC(255,182,66,0.98);
         ctx.lineWidth = 5.2;
         strokePts(dp);
       }
@@ -1479,12 +1619,12 @@
     var dest = W.loc(route.dest);
     if (dest) {
       var pulse = 10 + Math.sin(Date.now() * 0.004) * 3;
-      ctx.strokeStyle = "rgba(127,224,154,0.85)";
+      ctx.strokeStyle = TC(127,224,154,0.85);
       ctx.lineWidth = 2;
       var dy = T.reliefAt(dest.x, dest.z) + 1;
       R3.groundCircle(ctx, cam, dest.x, dest.z, pulse, 26, dy);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(127,224,154,0.28)";
+      ctx.strokeStyle = TC(127,224,154,0.28);
       R3.groundCircle(ctx, cam, dest.x, dest.z, pulse + 7, 26, dy);
       ctx.stroke();
     }
@@ -1514,17 +1654,17 @@
     var t = Date.now() * 0.003;
     var r = 9 + Math.sin(t) * 2.5;
     var wy = T.reliefAt(wp.x, wp.z);
-    ctx.strokeStyle = "rgba(127,224,154,0.9)";
+    ctx.strokeStyle = TC(127,224,154,0.9);
     ctx.lineWidth = 2;
     R3.groundCircle(ctx, cam, wp.x, wp.z, r, 24, wy + 1);
     ctx.stroke();
     var top = cam.project(wp.x, wy + 40 + Math.sin(t) * 3, wp.z, {});
     var base = cam.project(wp.x, wy, wp.z, {});
     if (top && base) {
-      ctx.strokeStyle = "rgba(127,224,154,0.45)";
+      ctx.strokeStyle = TC(127,224,154,0.45);
       ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(top.x, top.y); ctx.stroke();
-      ctx.fillStyle = "rgba(127,224,154,0.95)";
+      ctx.fillStyle = TC(127,224,154,0.95);
       ctx.beginPath();
       ctx.moveTo(top.x, top.y + 7);
       ctx.lineTo(top.x - 5, top.y - 3);
@@ -1547,7 +1687,7 @@
     var alpha = Math.min(1, (340 - cam.dist) / 160);
     var W2 = cam.viewport.w, H2 = cam.viewport.h;
 
-    ctx.strokeStyle = "rgba(32,34,22," + (0.5 * alpha).toFixed(3) + ")";
+    ctx.strokeStyle = TC(32,34,22,(0.5 * alpha).toFixed(3));
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     var drawn = 0;
@@ -1580,7 +1720,7 @@
     var relief = car.groundPose();
 
     // shadow
-    ctx.fillStyle = "rgba(0,0,0,0.34)";
+    ctx.fillStyle = TC(0,0,0,0.34);
     R3.groundCircle(ctx, cam, car.x, car.z, 6.2, 18, relief);
     ctx.fill();
 
@@ -1596,8 +1736,8 @@
       var quad = [lit(near, -3.5), lit(near, 3.5), lit(far, spread), lit(far, -spread)];
       if (quad[0] && quad[1] && quad[2] && quad[3]) {
         var g = ctx.createLinearGradient(quad[0].x, quad[0].y, quad[3].x, quad[3].y);
-        g.addColorStop(0, "rgba(255,232,160,0.30)");
-        g.addColorStop(1, "rgba(255,232,160,0)");
+        g.addColorStop(0, TC(255,232,160,0.30));
+        g.addColorStop(1, TC(255,232,160,0));
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.moveTo(quad[0].x, quad[0].y);
@@ -1619,9 +1759,9 @@
     if (rearSp && rearSp.w > 0) {
       var pulse = 0.72 + 0.28 * Math.sin(worldTime * 8.5);
       var rxGlow = ctx.createRadialGradient(rearSp.x, rearSp.y, 1, rearSp.x, rearSp.y, Math.max(6, 16 * rearSp.scale * 0.035));
-      rxGlow.addColorStop(0, "rgba(80, 225, 255, " + (0.75 * pulse).toFixed(2) + ")");
-      rxGlow.addColorStop(0.45, "rgba(40, 130, 240, " + (0.35 * pulse).toFixed(2) + ")");
-      rxGlow.addColorStop(1, "rgba(20, 80, 220, 0)");
+      rxGlow.addColorStop(0, TC(80,225,255,(0.75 * pulse).toFixed(2)));
+      rxGlow.addColorStop(0.45, TC(40,130,240,(0.35 * pulse).toFixed(2)));
+      rxGlow.addColorStop(1, TC(20,80,220,0));
       ctx.fillStyle = rxGlow;
       ctx.beginPath();
       ctx.arc(rearSp.x, rearSp.y, Math.max(6, 16 * rearSp.scale * 0.035), 0, 6.2832);
@@ -1636,9 +1776,9 @@
         if (!qs) continue;
         var qr = Math.max(2, q.r * qs.scale * 0.095);
         var qg = ctx.createRadialGradient(qs.x, qs.y, 0, qs.x, qs.y, qr);
-        qg.addColorStop(0, "rgba(190,246,255," + (q.life * 0.75).toFixed(3) + ")");
-        qg.addColorStop(0.4, "rgba(78,196,255," + (q.life * 0.45).toFixed(3) + ")");
-        qg.addColorStop(1, "rgba(30,96,230,0)");
+        qg.addColorStop(0, TC(190,246,255,(q.life * 0.75).toFixed(3)));
+        qg.addColorStop(0.4, TC(78,196,255,(q.life * 0.45).toFixed(3)));
+        qg.addColorStop(1, TC(30,96,230,0));
         ctx.fillStyle = qg;
         ctx.beginPath();
         ctx.arc(qs.x, qs.y, qr, 0, 6.2832);
@@ -1658,9 +1798,9 @@
                                car.z - bf[1] * 17 + oz, {});
           if (!b0 || !b1) continue;
           var lg = ctx.createLinearGradient(b0.x, b0.y, b1.x, b1.y);
-          lg.addColorStop(0, "rgba(228,252,255,0.9)");
-          lg.addColorStop(0.35, "rgba(110,210,255,0.55)");
-          lg.addColorStop(1, "rgba(60,150,255,0)");
+          lg.addColorStop(0, TC(228,252,255,0.9));
+          lg.addColorStop(0.35, TC(110,210,255,0.55));
+          lg.addColorStop(1, TC(60,150,255,0));
           ctx.strokeStyle = lg;
           ctx.lineWidth = Math.max(3, 10 * b0.scale * 0.06);
           ctx.beginPath();
@@ -1678,7 +1818,7 @@
       var p = car.dust[d];
       var s = cam.project(p.x, T.reliefAt(p.x, p.z) + p.y, p.z, {});
       if (!s) continue;
-      ctx.fillStyle = "rgba(170,152,116," + (p.life * 0.30).toFixed(3) + ")";
+      ctx.fillStyle = TC(170,152,116,(p.life * 0.30).toFixed(3));
       ctx.beginPath();
       ctx.arc(s.x, s.y, Math.max(1, p.r * s.scale * 0.06), 0, 6.2832);
       ctx.fill();
@@ -1748,13 +1888,13 @@
 
     if (ang !== null) {
       ctx.rotate(ang);
-      ctx.fillStyle = "rgba(127,224,154," + pulse.toFixed(2) + ")";
+      ctx.fillStyle = TC(127,224,154,pulse.toFixed(2));
       ctx.beginPath();
       ctx.moveTo(20, 0); ctx.lineTo(-8, -12); ctx.lineTo(-2, 0); ctx.lineTo(-8, 12);
       ctx.closePath(); ctx.fill();
       ctx.rotate(-ang);
     } else {
-      ctx.strokeStyle = "rgba(127,224,154," + pulse.toFixed(2) + ")";
+      ctx.strokeStyle = TC(127,224,154,pulse.toFixed(2));
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(0, 0, 13, 0, 6.2832); ctx.stroke();
       ctx.beginPath();
@@ -1767,9 +1907,9 @@
     ctx.font = '10px "FO2 Terminal", Consolas, monospace';
     var tw = ctx.measureText(label).width;
     var lx = -tw / 2, ly = 26;
-    ctx.fillStyle = "rgba(8,12,10,0.85)";
+    ctx.fillStyle = TC(8,12,10,0.85);
     ctx.fillRect(lx - 6, ly - 12, tw + 12, 18);
-    ctx.strokeStyle = "rgba(127,224,154,0.5)";
+    ctx.strokeStyle = TC(127,224,154,0.5);
     ctx.lineWidth = 1;
     ctx.strokeRect(lx - 6, ly - 12, tw + 12, 18);
     ctx.fillStyle = "#9bf0b6";
@@ -1786,7 +1926,7 @@
                       l: 9 + Math.random() * 16, v: 700 + Math.random() * 500 });
         }
       }
-      ctx.strokeStyle = "rgba(186,214,226,0.30)";
+      ctx.strokeStyle = TC(186,214,226,0.30);
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (var r = 0; r < rain.length; r++) {
@@ -1808,7 +1948,7 @@
                        s: Math.random() * 1.5 + 0.4 });
         }
       }
-      ctx.fillStyle = "rgba(214,196,150,0.16)";
+      ctx.fillStyle = TC(214,196,150,0.16);
       for (var k = 0; k < motes.length; k++) {
         var p2 = motes[k];
         p2.x += p2.vx * dt; p2.y += p2.vy * dt;
@@ -1821,10 +1961,10 @@
   function drawGrade() {
     var w = cam.viewport.w, h = cam.viewport.h;
     if (TR.Clock.isNight()) {
-      ctx.fillStyle = "rgba(20,34,58,0.22)";
+      ctx.fillStyle = TC(20,34,58,0.22);
       ctx.fillRect(0, 0, w, h);
     } else if (state.weather === "storm") {
-      ctx.fillStyle = "rgba(40,58,72,0.16)";
+      ctx.fillStyle = TC(40,58,72,0.16);
       ctx.fillRect(0, 0, w, h);
     }
   }
@@ -1908,7 +2048,7 @@
 
     if (quality.showFps) {
       ctx.font = '10px "FO2 Terminal", Consolas, monospace';
-      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillStyle = TC(0,0,0,0.6);
       ctx.fillRect(cam.viewport.w - 250, cam.viewport.h - 150, 240, 56);
       ctx.fillStyle = "#7fe09a";
       ctx.fillText("frame  " + quality.ms.toFixed(2) + " ms · " + quality.fps + " fps", cam.viewport.w - 240, cam.viewport.h - 132);
@@ -1972,6 +2112,9 @@
       if (state.travel) { HUD.toast("EN ROUTE \u00b7 ABORT FIRST [ESC]", "warn"); return; }
       setMode("drive");
     };
+    HUD.onEnter(enterLocation);
+    $id("thSand").onclick = function () { setTheme("sand"); };
+    $id("thGreen").onclick = function () { setTheme("green"); };
     fold("foldLeft", "left");
     fold("foldRight", "right");
     $id("keyToggle").onclick = function () {
@@ -2015,6 +2158,8 @@
           HUD.toast("HEADLIGHTS " + (car.lightsOn ? "ON" : "OFF"));
           break;
         case "r": recenter(); break;
+        case "e": enterLocation(); break;
+        case "c": setTheme(THEME.name === "sand" ? "green" : "sand"); break;
         case "0": case "1": case "2": case "3":
           controller.setTimeScale(parseInt(k, 10));
           break;
@@ -2076,6 +2221,7 @@
     selectLocation: selectLocation,
     clearSelection: clearSelection,
     beginTravel: beginTravel,
+    enterLocation: enterLocation,
     pinAndDrive: pinAndDrive,
     refreshList: refreshList,
     recenter: function () { recenter(); },

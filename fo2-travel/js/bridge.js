@@ -44,7 +44,9 @@
       travelMode: "804",   // 0 idle, 1 fast travel, 2 manual drive
       fuel:       "805",
       condition:  "806",
-      encounter:  "807"    // non-zero while an encounter is pending
+      encounter:  "807",   // non-zero while an encounter is pending
+      enterIndex: "808",   // index of the location the player is entering
+      enterReq:   "809"    // ticks up each time the player asks to enter
     }
   };
 
@@ -122,6 +124,10 @@
    *   encounter.spawn { type, x, z, hostile, name, text } force an encounter
    *   encounter.result{ id, outcome:"win"|"flee"|"loss", damage, caps }
    *   loc.unlock      { id } reveal a location
+   *   loc.enterable   { id, enterable } mark whether a location has an
+   *                   interior built yet; false greys out the ENTER action
+   *   location.entered{ locId } the game accepted; the view closes itself
+   *   location.denied { locId, reason } refused; reason is shown to the player
    *   clock.set       { year, month, day, hour, minute }
    *   ui.show / ui.hide / ui.toggle
    *   focus           { focused: bool }
@@ -244,6 +250,64 @@
     return Bridge.send("encounter.resolve", { id: enc.id, encType: enc.type, choice: choice });
   };
 
+  /**
+   * The player is parked at a location and wants to go inside. This is the
+   * hand-off: the view has done its job and the game takes over, loading the
+   * cell and moving the player. Carries the map-marker editor id as well as
+   * the table index, so the game side can resolve it whichever way suits -
+   * by editor id if it keeps a lookup, by index into TravelMarkers if it
+   * does not.
+   *
+   * The game must answer with location.entered or location.denied; until one
+   * of those arrives the UI holds the action disabled.
+   */
+  Bridge.enterLocation = function (loc, idx) {
+    Bridge.setGlobal(CONFIG.globals.enterIndex, idx);
+    // A counter rather than a flag: entering the same place twice in a row
+    // has to read as two separate requests on a polling Papyrus script.
+    enterTicket = (enterTicket + 1) % 1000000;
+    Bridge.setGlobal(CONFIG.globals.enterReq, enterTicket);
+    var msg = Bridge.send("location.enter", {
+      locId: loc.id, name: loc.name, marker: loc.marker,
+      kind: loc.kind, region: loc.region, index: idx,
+      x: +loc.x.toFixed(2), z: +loc.z.toFixed(2),
+      services: loc.services || []
+    });
+    Bridge.pollEnterAck(loc.id);
+    return msg;
+  };
+  var enterTicket = 0;
+
+  /**
+   * Acknowledgement for the Papyrus-only path. With a plugin the game answers
+   * with location.entered / location.denied and this is not used; without
+   * one, Papyrus has no way to call into JS at all, so the quest script
+   * answers by writing the request global back instead - 0 for accepted,
+   * a negative value for refused. Polled, because that is the only channel
+   * there is.
+   */
+  Bridge.pollEnterAck = function (locId) {
+    if (hasNative() || !papyrusReady()) return;
+    var tries = 0;
+    (function tick() {
+      if (++tries > 14) return;
+      Bridge.getGlobal(CONFIG.globals.enterReq).then(function (v) {
+        if (v === null || v === undefined) return setTimeout(tick, 400);
+        var n = Number(v);
+        if (n === 0) {
+          global.fo2Message({ type: "location.entered", locId: locId });
+        } else if (n < 0) {
+          global.fo2Message({
+            type: "location.denied", locId: locId,
+            reason: n === -2 ? "no interior built" : "refused by the game"
+          });
+        } else {
+          setTimeout(tick, 400);
+        }
+      });
+    })();
+  };
+
   Bridge.waypoint = function (p) { return Bridge.send("waypoint.set", p); };
   Bridge.discover = function (o) { return Bridge.send("map.discover", o); };
   Bridge.log = function (m) { return Bridge.send("log", { message: String(m) }); };
@@ -329,6 +393,13 @@
           setTimeout(function () {
             global.fo2Message({ type: "travel.approve", destId: msg.destId });
           }, 220);
+          break;
+        case "location.enter":
+          // Nothing is built in mock mode, so acknowledge and let the view
+          // show what the hand-off looks like.
+          setTimeout(function () {
+            global.fo2Message({ type: "location.entered", locId: msg.locId });
+          }, 420);
           break;
         case "encounter.resolve":
           setTimeout(function () {

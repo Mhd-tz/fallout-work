@@ -290,6 +290,10 @@
 
     // A course already running must not be re-plotted from under itself.
     var enRoute = !!st.travel;
+    // Standing on the place you have selected: the useful action is no longer
+    // "travel here", it is "go inside".
+    var atHere = st.here === loc.id && !enRoute;
+    var canEnter = atHere && st.enterable[loc.id] !== false;
     var chips = "";
     (loc.services || []).forEach(function (s) { chips += '<div class="chip">' + s + "</div>"; });
     if (loc.rads) chips += '<div class="chip warn">RADIATION</div>';
@@ -316,8 +320,13 @@
         '<div class="fbars" id="fbars"></div>' +
       "</div>" +
       '<div class="actions">' +
-        '<button class="act primary" id="actGo"' + ((fuelOk && !enRoute) ? "" : " disabled") + '><span class="k">[ENTER]</span> ' +
-          (enRoute ? "En Route&hellip;" : "Auto-Travel") + "</button>" +
+        (atHere
+          ? '<button class="act primary" id="actEnter"' + (canEnter ? "" : " disabled") +
+              '><span class="k">[E]</span> ' +
+              (canEnter ? "Enter " + loc.name : "No Interior Built") + "</button>"
+          : '<button class="act primary" id="actGo"' + ((fuelOk && !enRoute) ? "" : " disabled") +
+              '><span class="k">[ENTER]</span> ' +
+              (enRoute ? "En Route&hellip;" : "Auto-Travel") + "</button>") +
         '<button class="act" id="actPin"><span class="k">[P]</span> Pin &amp; Drive Manually</button>' +
         '<button class="act ghost" id="actClear"><span class="k">[ESC]</span> Clear Plot</button>' +
       "</div>";
@@ -340,6 +349,8 @@
 
     var go = $("actGo"), pin = $("actPin"), cl = $("actClear");
     if (go && !enRoute) go.onclick = function () { app.beginTravel(); };
+    var ent = $("actEnter");
+    if (ent && canEnter) ent.onclick = function () { app.enterLocation(); };
     if (pin) pin.onclick = function () { app.pinAndDrive(); };
     if (cl) cl.onclick = function () { app.clearSelection(); };
   };
@@ -383,6 +394,40 @@
                           : v.condition < 40 ? "CHASSIS DAMAGED · REDUCED SPEED"
                           : "CHRYSLUS CORVEGA · MFC DRIVE";
   };
+
+  /**
+   * The prompt that appears when the car is parked at a known location.
+   * `state` is one of: "ready", "busy" (waiting on the game), "blocked"
+   * (the game says this place has no interior yet).
+   */
+  var KIND_LABEL = {
+    town: "Settlement", vault: "Vault", base: "Military site",
+    ruin: "Ruin", cave: "Cave", poi: "Site of interest"
+  };
+
+  HUD.enterPrompt = function (loc, state, note) {
+    var bar = $("enterbar");
+    if (!loc) {
+      if (bar.className !== "panel") bar.className = "panel";
+      HUD._enterLoc = null;
+      return;
+    }
+    if (HUD._enterLoc !== loc.id) {
+      $("ebIco").innerHTML = KIND_ICON[loc.kind] || "\u25a0";
+      $("ebName").textContent = loc.name;
+      HUD._enterLoc = loc.id;
+    }
+    var sub = KIND_LABEL[loc.kind] || "Location";
+    if (loc.services && loc.services.length) sub += " \u00b7 " + loc.services.join(" ");
+    sub = note || sub;
+    if (HUD._enterSub !== sub) { $("ebSub").textContent = sub; HUD._enterSub = sub; }
+    $("ebGoLabel").textContent =
+      state === "busy" ? "Standby\u2026" : state === "blocked" ? "Unavailable" : "Enter";
+    var cls = "panel on" + (state === "ready" ? "" : " " + state);
+    if (bar.className !== cls) bar.className = cls;
+  };
+
+  HUD.onEnter = function (fn) { $("ebGo").onclick = fn; };
 
   HUD.clock = function () {
     $("ctime").textContent = TR.Clock.time();

@@ -37,7 +37,15 @@ GlobalVariable Property FO2_Encounter      Auto  ; 807 - non-zero while an encou
 GlobalVariable Property GameDaysPassed     Auto  ; Fallout4.esm 0x00000039
 
 ObjectReference[] Property TravelMarkers   Auto
-{ Map markers / XMarkerHeadings, index-aligned with WORLD.LOCATIONS. }
+{ Map markers / XMarkerHeadings, index-aligned with WORLD.LOCATIONS.
+  These are where the car parks - outside the gate. }
+
+ObjectReference[] Property InteriorMarkers Auto
+{ Where ENTER puts the player: inside the settlement, at the door, wherever
+  the site actually begins. Index-aligned with TravelMarkers. Leave an entry
+  empty for a site you have not built yet and the UI greys out its ENTER
+  button instead of teleporting the player into the void. Leave the whole
+  array empty to fall back to TravelMarkers. }
 
 Quest Property EncounterQuest              Auto
 { Quest that stages a random encounter. Optional. }
@@ -47,6 +55,9 @@ ObjectReference Property HighwaymanRef     Auto
 
 Message Property TravelBlockedMsg          Auto
 { Shown when travel is refused (over-encumbered, in combat, ...). }
+
+Message Property NoInteriorMsg             Auto
+{ Shown when the player tries to enter a site with nothing built. Optional. }
 
 Float  Property PollInterval = 0.5         Auto
 Bool   Property DebugLogging = True        Auto
@@ -58,6 +69,7 @@ Float  Property PendingHours   Auto Conditional
 Float  Property PendingFuel    Auto Conditional
 Int    Property LastMode       Auto Conditional
 Int    Property LastEncounter  Auto Conditional
+Int    Property LastEnterReq   Auto Conditional
 Bool   Property TravelLocked   Auto Conditional
 
 ;=========================================================================
@@ -66,6 +78,7 @@ Bool   Property TravelLocked   Auto Conditional
 Event OnQuestInit()
   LastMode = 0
   LastEncounter = 0
+  LastEnterReq = 0
   RegisterForSingleUpdate(PollInterval)
   Log("NAVCOM bridge online")
 EndEvent
@@ -101,6 +114,16 @@ Function PollUI()
       OnEncounterPending()
     EndIf
     LastEncounter = enc
+  EndIf
+
+  ; ENTER is a counter, not a flag: walking into the same town twice in a row
+  ; has to read as two requests, and a flag would only ever fire once.
+  If FO2_EnterReq
+    Int req = FO2_EnterReq.GetValueInt()
+    If req > 0 && req != LastEnterReq
+      LastEnterReq = req
+      OnEnterLocation(FO2_EnterIndex.GetValueInt())
+    EndIf
   EndIf
 EndFunction
 
@@ -152,6 +175,60 @@ Function OnTravelComplete(Int destIndex, Float hours, Float fuelUsed, Float cond
   EndIf
 
   Log("arrived at index " + destIndex + " after " + hours + "h")
+EndFunction
+
+; type "location.enter" - the player is parked at a site and wants to go in.
+;
+; This is the hand-off out of the travel screen. Move the player, then let the
+; UI know: with a plugin, InteropCall back with location.entered; without one,
+; write FO2_EnterReq (0 accepted, -1 refused, -2 nothing built) - that is the
+; only channel Papyrus has, and the view polls it.
+Function OnEnterLocation(Int locIndex)
+  If locIndex < 0 || !TravelMarkers || locIndex >= TravelMarkers.Length
+    Log("ERROR location.enter with bad index " + locIndex)
+    DenyEnter(-1, "bad index")
+    Return
+  EndIf
+
+  If IsTravelBlocked()
+    DenyEnter(-1, "player is busy")
+    Return
+  EndIf
+
+  ObjectReference door = None
+  If InteriorMarkers && locIndex < InteriorMarkers.Length
+    door = InteriorMarkers[locIndex]
+  EndIf
+  If !door
+    ; Nothing built for this site yet. Say so rather than dropping the player
+    ; somewhere they cannot get out of.
+    If !InteriorMarkers || InteriorMarkers.Length == 0
+      door = TravelMarkers[locIndex]      ; whole array unset: use the outside
+    Else
+      If NoInteriorMsg
+        NoInteriorMsg.Show()
+      EndIf
+      DenyEnter(-2, "no interior at index " + locIndex)
+      Return
+    EndIf
+  EndIf
+
+  Actor player = Game.GetPlayer()
+  player.MoveTo(door)
+
+  ; The car stays outside where it was parked, which is what leaving a town on
+  ; foot should look like.
+  If FO2_EnterReq
+    FO2_EnterReq.SetValue(0)              ; accepted
+  EndIf
+  Log("entered site index " + locIndex)
+EndFunction
+
+Function DenyEnter(Int code, String reason)
+  If FO2_EnterReq
+    FO2_EnterReq.SetValue(code)
+  EndIf
+  Log("enter denied: " + reason)
 EndFunction
 
 ; type "encounter.trigger" then "encounter.resolve" with choice "fight".

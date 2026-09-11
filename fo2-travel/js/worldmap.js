@@ -210,10 +210,12 @@
   ];
 
   var byId = {};
-  LOCATIONS.forEach(function (l) {
+  var idxById = {};
+  LOCATIONS.forEach(function (l, i) {
     l.x = l.p[0];
     l.z = l.p[1];
     byId[l.id] = l;
+    idxById[l.id] = i;
   });
   var regionById = {};
   REGIONS.forEach(function (r) { regionById[r.id] = r; });
@@ -229,6 +231,8 @@
     ENCOUNTERS: ENCOUNTERS,
     HAZARDS: HAZARDS,
     loc: function (id) { return byId[id]; },
+    /** Table position, which is what the game side indexes markers by. */
+    indexOf: function (id) { return idxById[id] === undefined ? -1 : idxById[id]; },
     region: function (id) { return regionById[id]; },
     px: px
   };

@@ -44,6 +44,11 @@
         <div class="spacer"></div>
 
         <div id="focusbadge"><span class="dotm"></span><span id="focustext">NO INPUT FOCUS</span></div>
+        <div id="themeswitch" class="sand">
+          <button class="th" id="thSand"><i></i>Sand</button>
+          <button class="th" id="thGreen"><i></i>Term</button>
+          <span class="thkey">C</span>
+        </div>
         <button class="tbtn" id="btnCenter">RECENTER</button>
         <button class="tbtn" id="btnRoads">ROADS</button>
         <button class="tbtn danger" id="btnClose">EXIT [ESC]</button>
@@ -85,6 +90,16 @@
             </span>
           </div>
         </div>
+      </div>
+
+      <!-- ================= ARRIVAL / ENTER ================= -->
+      <div id="enterbar" class="panel">
+        <div class="eb-ico" id="ebIco">&#9632;</div>
+        <div class="eb-txt">
+          <div class="eb-name" id="ebName">MODOC</div>
+          <div class="eb-sub" id="ebSub">FARM TOWN</div>
+        </div>
+        <button class="eb-go" id="ebGo"><span class="k">E</span><span id="ebGoLabel">Enter</span></button>
       </div>
 
       <!-- ================= TRAVEL PROGRESS ================= -->
@@ -178,7 +193,7 @@
       <div id="errbox" style="display:none;position:absolute;left:0;right:0;bottom:0;z-index:99;background:#3a0d0d;color:#ffb4a8;font:11px monospace;padding:6px 10px"></div>
 
       <div id="boot">
-        <div style="font-family: var(--sans); font-size: 20px; letter-spacing: 3px">
+        <div style="font-family: var(--display); font-size: 30px; letter-spacing: 3px">
           CHRYSLUS NAVCOM
         </div>
         <div class="bar"><i id="bootbar"></i></div>
@@ -207,6 +222,7 @@
 
     <!-- Plain scripts, no ES modules: PrismaUI loads views off disk and
          file:// + modules trips CORS in WebKit. Order matters. -->
+    <script src="js/theme.js"></script>
     <script src="js/r3.js"></script>
     <script src="js/worldmap.js"></script>
     <script src="js/terrain.js"></script>

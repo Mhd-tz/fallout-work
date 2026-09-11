@@ -205,6 +205,13 @@
   };
   R3.DEFAULT_LIGHT = DEFAULT_LIGHT;
 
+  /**
+   * Every mesh face's fill is built here - props, towns, bridges, the car -
+   * so this is where the active theme recolours all of them at once.
+   */
+  var shadeCache = {};
+  R3.flushColors = function () { shadeCache = {}; };
+
   function shade(hex, k, tint) {
     var n = parseInt(hex.slice(1), 16);
     var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
@@ -213,6 +220,16 @@
     r = r > 255 ? 255 : r | 0;
     g = g > 255 ? 255 : g | 0;
     b = b > 255 ? 255 : b | 0;
+    var TH = global.THEME;
+    if (TH) {
+      var key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+      var hit = shadeCache[key];
+      if (hit !== undefined) return hit;
+      var c = TH.map(r, g, b);
+      hit = "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
+      shadeCache[key] = hit;
+      return hit;
+    }
     return "rgb(" + r + "," + g + "," + b + ")";
   }
   R3.shade = shade;
@@ -288,7 +305,9 @@
         if (p === 0) ctx.moveTo(s2.x, s2.y); else ctx.lineTo(s2.x, s2.y);
       }
       ctx.closePath();
-      ctx.fillStyle = f2.glow ? f2.c : shade(f2.c, k2, tint);
+      ctx.fillStyle = f2.glow
+        ? (global.THEME ? THEME.glow(f2.c) : f2.c)
+        : shade(f2.c, k2, tint);
       ctx.fill();
       if (f2.stroke) {
         ctx.strokeStyle = f2.stroke;

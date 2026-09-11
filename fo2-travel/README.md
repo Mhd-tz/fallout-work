@@ -82,6 +82,7 @@ Ultralight supports.
 fo2-travel/
   index.html                     the view PrismaUI loads
   css/travel.css                 all styling
+  js/theme.js                    the two looks: sand map / terminal green
   js/r3.js                       camera, projection, mesh drawing
   js/worldmap.js                 FO2 locations, roads, regions, encounter tables
   js/terrain.js                  3D heightfield terrain, fog of war, road mask
@@ -92,7 +93,7 @@ fo2-travel/
   js/bridge.js                   >>> the game boundary: JS <-> F4SE/Papyrus <<<
   js/hud.js                      every DOM read/write
   js/main.js                     state, input, simulation, render loop
-  fonts/fo2-terminal.ttf         the interface typeface (see §11)
+  fonts/                         interface typefaces + drop-in slots (see §12)
   papyrus/FO2Travel_MapBridge.psc game-side template script
 ```
 
@@ -105,8 +106,8 @@ plugin work touches. The rest is self-contained.
 
 1. Drop the `fo2-travel` folder wherever your mod keeps its view files, e.g.
    `Data/PrismaUI/views/fo2-travel/`. Take `fonts/` with it — the interface
-   typeface is loaded from disk relative to the view (§11), and without it
-   everything falls back to Consolas.
+   typefaces are loaded from disk relative to the view (§12), and without them
+   everything falls back to whatever the system happens to have.
 2. Create the view from your plugin on `kPostLoadGame` / `kNewGame`:
 
 ```cpp
@@ -152,12 +153,28 @@ with `type`, `v` (protocol version) and `t` (timestamp ms).
 | `encounter.resolve` | player picked an option | `id`, `encType`, `choice` (`fight`/`sneak`/`flee`/`wait`/`push`/`approach`/`ignore`) |
 | `waypoint.set` | pin dropped for manual driving | `x`, `z`, `destId?`, `destName?` |
 | `map.discover` | new location found while driving | `id`, `x`, `z` |
+| `location.enter` | player pressed ENTER at a site | `locId`, `name`, `marker`, `kind`, `region`, `index`, `x`, `z`, `services[]` |
 | `log` | diagnostics | `message` |
 
-**`travel.complete` is the one that matters.** The UI never moves the player —
-it plays the drive, then tells the game where the player ended up. Do the
-`MoveTo` and the clock advance in Papyrus so saves, cell loading and script
-state all stay consistent.
+**`travel.complete` and `location.enter` are the two that matter.** The UI
+never moves the player — it plays the drive, then tells the game where the
+player ended up, and later that they want to go inside. Do the `MoveTo` and
+the clock advance in Papyrus so saves, cell loading and script state all stay
+consistent.
+
+`location.enter` is the hand-off *out* of this screen: the player is parked at
+a site and has pressed ENTER. The message carries the site three ways, so
+resolve it whichever suits your setup:
+
+* `marker` — the map-marker editor id from `js/worldmap.js` (`FO2_MRK_Modoc`).
+  Best if the plugin keeps a lookup by editor id.
+* `index` — position in `WORLD.LOCATIONS`, which is the order
+  `TravelMarkers` / `InteriorMarkers` must be filled in the CK.
+* `locId` — the short string id (`modoc`), for your own table.
+
+**The view then waits.** It shows *Standby…* and holds the button until the
+game answers with `location.entered` or `location.denied`; after six seconds
+with no answer it gives the button back and warns the player. Always answer.
 
 Plugin side:
 
@@ -174,6 +191,8 @@ void OnUIMessage(const char* json) {
         CallPapyrus("FO2Travel_MapBridge", "OnTravelComplete",
                     idx, hours, msg.value("fuelUsed", 0.0f),
                     msg.value("condition", 100.0f));
+    } else if (type == "location.enter") {
+        OnEnterLocation(msg);
     } else if (type == "encounter.resolve" && msg.value("choice", "") == "fight") {
         StartEncounter(msg.value("encType", ""), msg.value("x", 0.0f), msg.value("z", 0.0f));
         api->Hide(view);
@@ -182,6 +201,73 @@ void OnUIMessage(const char* json) {
     }
 }
 ```
+
+### Handling `location.enter`
+
+The whole round trip. `Reply()` is the only part you must not skip — the view
+is sitting on a disabled button until it hears back.
+
+```cpp
+static void Reply(const char* type, const std::string& locId,
+                  const char* reason = nullptr, bool permanent = false) {
+    nlohmann::json r{ {"type", type}, {"locId", locId} };
+    if (reason)    r["reason"]    = reason;
+    if (permanent) r["permanent"] = true;          // stops the UI re-offering it
+    api->InteropCall(view, "fo2Message", r.dump().c_str());
+}
+
+void OnEnterLocation(const nlohmann::json& msg) {
+    const std::string locId  = msg.value("locId", "");
+    const std::string marker = msg.value("marker", "");
+    const int         index  = msg.value("index", -1);
+
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    if (!player) { Reply("location.denied", locId, "no player"); return; }
+
+    // Refuse for the same reasons the game would refuse a fast travel.
+    if (player->IsInCombat()) {
+        Reply("location.denied", locId, "in combat");
+        return;
+    }
+
+    // Resolve by editor id; fall back to the index into the CK array.
+    RE::TESObjectREFR* door = LookupInteriorByEditorID(marker);
+    if (!door) door = InteriorMarkerAt(index);
+    if (!door) {
+        // Nothing built here yet. `permanent` makes the view grey the site
+        // out for the rest of the session instead of asking again.
+        Reply("location.denied", locId, "no interior built", true);
+        return;
+    }
+
+    player->MoveTo(door);                 // the car stays parked outside
+    Reply("location.entered", locId);     // the view closes itself
+    api->Hide(view);
+    api->Unfocus(view);
+}
+```
+
+If you would rather keep the logic in Papyrus, forward it instead — the
+template already has the function:
+
+```cpp
+CallPapyrus("FO2Travel_MapBridge", "OnEnterLocation", msg.value("index", -1));
+```
+
+**Telling the view what is built.** As you add settlements, push the list so
+the UI can grey out the rest. Either shape works:
+
+```cpp
+api->InteropCall(view, "fo2Message",
+    R"({"type":"state.patch","enterable":["arroyo","klamath","den","modoc"]})");
+// or one at a time
+api->InteropCall(view, "fo2Message",
+    R"({"type":"loc.enterable","id":"gecko","enterable":false})");
+```
+
+An array replaces the whole picture (everything not listed becomes
+unavailable); an object merges. A site the game has said nothing about is
+assumed enterable, so the view never hides a door the mod does have.
 
 ---
 
@@ -197,13 +283,16 @@ api->Invoke(view, "fo2Message('{\"type\":\"ui.show\"}')");
 
 | `type` | effect in the view |
 |---|---|
-| `state.sync` / `state.patch` | merge `{ player:{x,z,heading}, vehicle:{fuel,condition}, clock:{year,month,day,hour}, here, discovered:[ids], weather }` |
+| `state.sync` / `state.patch` | merge `{ player:{x,z,heading}, vehicle:{fuel,condition}, clock:{year,month,day,hour}, here, discovered:[ids], enterable:[ids]/{id:bool}, theme, weather }` |
 | `travel.approve` | `{destId}` — route confirmed, the drive plays out |
 | `travel.deny` | `{destId, reason}` — aborts with a banner |
 | `travel.arrived` | game finished its `MoveTo` |
 | `encounter.spawn` | force an encounter: `{encType, name, text, hostile, hazard, x, z}` |
 | `encounter.result` | `{id, outcome:"win"/"flee"/"loss", damage, caps}` — resumes or abandons the route |
 | `loc.unlock` | `{id}` reveals a location and its fog |
+| `location.entered` | `{locId}` — ENTER accepted; the view closes itself |
+| `location.denied` | `{locId, reason, permanent?}` — refused; `reason` is shown, `permanent` greys the site out for the session |
+| `loc.enterable` | `{id, enterable}` — mark one site as having an interior or not |
 | `clock.set` | `{year, month, day, hour, minute}` |
 | `ui.show` / `ui.hide` / `ui.toggle` | visibility |
 
@@ -249,6 +338,25 @@ clock advance. Fill `TravelMarkers[]` in the CK **in the same order as
 
 ---
 
+### Entering a site without a plugin
+
+`location.enter` also writes two globals, so the quest script can act on it
+with no C++ at all:
+
+| global | id | meaning |
+|---|---|---|
+| `FO2_EnterIndex` | `808` | index into `TravelMarkers` / `InteriorMarkers` |
+| `FO2_EnterReq` | `809` | ticks up on each request |
+
+It is a **counter, not a flag** — walking into the same town twice in a row has
+to read as two requests, and a flag would only ever fire once.
+
+Papyrus cannot call into JS, so the script answers through the same global:
+set `FO2_EnterReq` to `0` for accepted, `-1` for refused, `-2` for "nothing
+built there". The view polls it for six seconds and reacts. `OnEnterLocation`
+in the template already does all of this.
+
+
 ## 7. Tuning the world
 
 Everything about the map is data in `js/worldmap.js`:
@@ -292,6 +400,7 @@ URL hash flags jump straight to a state:
 | `#storm` | rain/storm weather |
 | `#fps` | on-canvas frame-cost readout |
 | `#quality=0..3` | lock a terrain quality tier instead of auto-tuning |
+| — | the theme is remembered between loads; press `C` or use the top-bar switch |
 | `#drive&boost&speed=34` | driving with the overcharge held open (dev only) |
 | `#drive&at=600,513&heading=0.64` | drop the car at a world position, facing a bearing |
 | `#drive&pitch=0.25&dist=110` | override the chase camera, e.g. to inspect a bridge |
@@ -299,7 +408,7 @@ URL hash flags jump straight to a state:
 Controls: **LMB** pan · **RMB** rotate/tilt · **wheel** zoom · **TAB** drive
 mode · **WASD** drive · **SHIFT** boost · **SPACE** brake (or pause in survey)
 · **ENTER** auto-travel · **P** pin & drive · **F** headlights · **R** recenter
-· **0–3** time rate · **ESC** clear/abort/exit.
+· **0–3** time rate · **C** sand/terminal · **E** enter the site you are parked at · **ESC** clear/abort/exit.
 
 The time-rate control folds away in manual driving — the clock there follows
 the wheels, not a multiplier — and folds back in on the way out.
@@ -489,18 +598,101 @@ the header keeps its count / range readout so a folded panel still tells you
 something. `HUD.refreshPanelRects()` is called on every fold, so the map
 counters immediately reclaim the space.
 
+**Entering a site.** Park at a location and a prompt rises above the dashboard
+with the place's name and what it offers: `E` or the button hands off to the
+game (§4). It is offered three ways — the prompt, `E`, and the route panel's
+primary action, which becomes *Enter <NAME>* when the site you have selected is
+the one you are standing on. Driving more than 18 units away drops it again, so
+it never claims you can walk into a settlement you left ten miles back.
+
 **The map key** lives at the foot of the location list and collapses the same
 way. The six marker glyphs carry real information - a vault is not a ruin - and
 nothing on screen said so; the last two rows describe the border treatment
 (dashed for undiscovered, red for a contact) rather than repeating a glyph.
 
-## 12. The typeface
+## 12. The two looks
 
-Fallout 2's interface type is a small blocky bitmap face. No system font looks
-like one and there is nothing free to ship, so `fonts/fo2-terminal.ttf` is
-authored here: the glyphs are pixel grids, merged into rectangular contours and
-emitted as a real TrueType file. 107 glyphs — ASCII plus the box, triangle and
-disc marks the markers use.
+The screen comes in two themes, switched by the **SAND / TERM** control in the
+top bar, by **C**, or by the game (`{ theme: "green" }` on any inbound
+message). The choice persists in `localStorage`.
+
+* **sand** — the Fallout 2 world map. Desert ochre, amber chrome, the terrain
+  shaded the way a paper map is.
+* **green** — a Vault-Tec terminal. One phosphor, brightness carrying all the
+  meaning, tight scan lines and a bloom on the text.
+
+`js/theme.js` owns both. The 3D world is *not* maintained as two palettes —
+it is recoloured at two choke points:
+
+| choke point | covers |
+|---|---|
+| `TERRAIN.css()` | every ground quad |
+| `R3.shade()` | every mesh face — props, towns, bridges, the car |
+
+Both build the fill string for their caller, so a ramp applied there catches
+the whole scene at once. Everything drawn by hand — sky, water, roads, the
+route line — goes through `TC()` in `main.js`, which forwards to the same
+ramp. Both choke points cache by 5-bit-per-channel bucket, so `THEME.set()`
+drops those caches on the way through.
+
+A ramp maps **luminance** to a colour, so relative brightness survives the
+change: a lit hillside stays brighter than its shadow, tarmac stays darker
+than sand. The green ramp is deliberately not linear. The map's sand sits
+around 0.7 luminance, and mapping that straight across gives a flat lime field
+with no depth, so the curve has two halves — the terrain band is crushed
+nearly to black, and only the top of the range (paint, water highlights, the
+route, the counters) is allowed to reach full phosphor. They are blended, not
+spliced, so a lit hillside crossing between them does not step.
+
+Three things do not follow the ramp, on purpose:
+
+* **Roads.** The ramp crushes tarmac to black along with the ground it sits
+  on, and a road you cannot see is not a road. The theme owns those colours
+  outright (`THEME.scene`): on a terminal the carriageway goes *darker* than
+  the terrain and the markings blaze instead.
+* **Contours.** With the ground crushed, the topographic contour lines stop
+  being a subtle touch and become how you read the relief at all, so they are
+  lit, drawn at a tighter interval, and kept further out.
+* **Warm self-lit surfaces.** Brake lights and warnings stay orange. Fallout's
+  own in-car terminals put alarms in orange against the green, and a warning
+  that is only "a slightly brighter green" is not a warning.
+
+## 13. Typefaces
+
+Fallout's interface type, across the series, is condensed grotesque: Fallout
+1/2 set their titles in **Gothic 821 Condensed** and their monochrome text in
+**JH Fallout**, and Fallout 3/NV/4 set the Pip-Boy and the terminals in
+**Monofonto**. The stylesheet defines four roles:
+
+| role | original | where it is used here |
+|---|---|---|
+| `--display` | Gothic 821 Condensed | panel headers, location names, HIGHWAYMAN, encounter titles, the brand |
+| `--body` | Monofonto / JH Fallout | lists, readouts, descriptions, hints — most of the screen |
+| `--ui` | Monofonto / Overseer | mode switch, theme switch, action and top-bar buttons |
+| `--data` | Monofonto | fixed-width readouts where columns must line up |
+
+None of the originals can be redistributed, so each stack is written in three
+tiers:
+
+1. **The real family, by name.** An installed system copy always wins, with no
+   files in `fonts/` at all.
+2. **A drop-in slot.** `gothic821.ttf`, `monofonto.ttf`, `overseer.ttf` and
+   `jh-fallout.ttf` each have an `@font-face` waiting. Add the file and the
+   view switches to the original — no code change, no rebuild. A slot with no
+   file behind it simply fails to load and the stack moves on.
+3. **A stand-in that ships**, all SIL OFL (`fonts/OFL.txt`): **Anton** for the
+   display role, **Oswald** for body and UI, **Share Tech Mono** for data.
+
+`fonts/README.txt` records the mapping and where to find each original.
+
+### fo2-terminal.ttf
+
+A pixel face authored here, kept but **not used by default** — it reads as
+8-bit rather than as Fallout. Add `"FO2 Terminal"` to the `--body` stack in
+`travel.css` to switch it on. The
+glyphs are pixel grids, merged into rectangular contours and emitted as a real
+TrueType file — 107 of them, ASCII plus the box, triangle and disc marks the
+markers use.
 
 The grid is seven rows above the baseline and two below, at 128 units per pixel
 in a 1280-unit em. That puts the cap height at 0.70 em, the same optical size
@@ -510,7 +702,5 @@ re-measured. **Ten pixel rows per em means font sizes that are multiples of
 30 throughout for that reason. Sizes in between still render, just softer.
 
 To regenerate or extend it, the generator is a single script; add a grid to the
-`G` table and rebuild. Keep the family name `FO2 Terminal` — `travel.css`
-declares it in `@font-face` with a relative `../fonts/` URL, which is what
-Ultralight resolves against the view's own path, and falls back to Consolas /
-SF Mono / Menlo if the file is ever missing.
+`G` table in `fonts/make-font.py` and rebuild. Keep the family name
+`FO2 Terminal` — `travel.css` names it in the `--body` stack.
