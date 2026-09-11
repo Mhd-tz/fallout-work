@@ -23,72 +23,6 @@
   HUD.ENC_ICON = ENC_ICON;
 
 
-  /* --- encounter pictograms -------------------------------------------------
-   * Bold silhouettes on a horizon, drawn as inline SVG. A 2-letter badge in a
-   * box is what made this window read as filler; an actual picture of what is
-   * on the road does not.
-   */
-  var GROUND = '<path class="gl" d="M0 74 H200" /><g class="hatch">' +
-    '<path d="M6 74 l-5 8"/><path d="M26 74 l-5 8"/><path d="M46 74 l-5 8"/>' +
-    '<path d="M66 74 l-5 8"/><path d="M86 74 l-5 8"/><path d="M106 74 l-5 8"/>' +
-    '<path d="M126 74 l-5 8"/><path d="M146 74 l-5 8"/><path d="M166 74 l-5 8"/>' +
-    '<path d="M186 74 l-5 8"/></g>';
-
-  var PICTO = {
-    deathclaw:
-      '<path d="M62 74 l4 -20 l-8 -12 l10 -4 l6 -12 l10 -6 l14 2 l4 -12 l4 12 l8 -10 l-2 12 ' +
-      'l10 8 l-6 8 l14 6 l16 12 l-10 2 l8 10 l-14 -6 l-6 8 l-4 -10 l-24 4 l2 8 z"/>' +
-      '<path d="M96 40 l6 -14 l3 13 z"/><path d="M110 40 l9 -12 l-1 13 z"/>' +
-      '<path d="M132 62 l14 -4 l-2 5 l-12 3 z"/>',
-    raiders:
-      '<circle cx="52" cy="34" r="7"/><path d="M45 44 h14 l4 30 h-8 l-3 -16 l-3 16 h-8 z"/>' +
-      '<path d="M52 20 l-4 -8 l4 3 l4 -3 z"/>' +
-      '<circle cx="118" cy="62" r="12" class="ring"/><circle cx="160" cy="62" r="12" class="ring"/>' +
-      '<path d="M118 62 l14 -18 h16 l12 18 h-10 l-8 -10 h-12 l-6 10 z"/>' +
-      '<path d="M132 44 l-2 -12 h6 l2 12 z"/>',
-    mutants:
-      '<circle cx="86" cy="26" r="11"/><path d="M66 40 h40 l6 34 h-14 l-4 -18 l-4 18 h-16 l-4 -18 l-4 18 h-12 z"/>' +
-      '<path d="M112 46 h40 v8 h-40 z"/><circle cx="156" cy="50" r="6"/>',
-    geckos:
-      '<path d="M40 74 l8 -14 l22 -8 l26 2 l16 8 l20 -14 l-8 16 l10 6 l-18 2 l-8 8 z"/>' +
-      '<path d="M60 68 l-4 8"/><path d="M92 70 l-2 6"/><circle cx="118" cy="58" r="3" class="eye"/>',
-    slavers:
-      '<circle cx="60" cy="30" r="8"/><path d="M52 40 h16 l4 34 h-9 l-3 -18 l-3 18 h-9 z"/>' +
-      '<circle cx="96" cy="52" r="6" class="ring"/><circle cx="114" cy="56" r="6" class="ring"/>' +
-      '<circle cx="132" cy="52" r="6" class="ring"/><circle cx="150" cy="56" r="6" class="ring"/>',
-    patrol:
-      '<circle cx="70" cy="30" r="8"/><path d="M62 40 h16 l4 34 h-9 l-3 -18 l-3 18 h-9 z"/>' +
-      '<path d="M104 74 V16"/><path d="M104 18 h40 l-8 10 l8 10 h-40 z"/>',
-    caravan:
-      '<path d="M40 74 l6 -20 h44 l6 20 h-8 l-4 -12 h-32 l-4 12 z"/>' +
-      '<path d="M46 54 l-8 -12 l10 4 l4 -8 l4 8 l6 -8 l4 8 l4 -8 l4 8 l10 -4 l-8 12 z"/>' +
-      '<circle cx="128" cy="60" r="14" class="ring"/><path d="M104 46 h40 v6 h-40 z"/>' +
-      '<path d="M144 46 l16 -10 v34 z"/>',
-    wanderer:
-      '<circle cx="94" cy="28" r="8"/><path d="M86 38 h16 l4 36 h-9 l-3 -20 l-3 20 h-9 z"/>' +
-      '<path d="M74 38 h12 v18 h-12 z"/><path d="M116 20 V74"/>',
-    wreck:
-      '<path d="M40 74 l4 -16 l14 -14 h44 l16 14 l14 2 l2 14 z"/>' +
-      '<path d="M62 46 h34 l10 12 h-48 z" class="hole"/>' +
-      '<circle cx="66" cy="74" r="8" class="ring"/><circle cx="122" cy="74" r="8" class="ring"/>' +
-      '<path d="M118 30 q10 -12 2 -20 q14 8 6 20" class="smoke"/>' +
-      '<path d="M136 34 q8 -10 2 -18 q12 8 4 18" class="smoke"/>',
-    radstorm:
-      '<path d="M46 46 q0 -18 20 -18 q6 -14 24 -12 q16 -8 26 6 q20 -2 20 16 q14 2 12 14 h-108 q-8 -2 -6 -6 z"/>' +
-      '<path d="M84 54 l-10 20 h10 l-6 14 l18 -20 h-10 l8 -14 z" class="bolt"/>' +
-      '<circle cx="140" cy="60" r="3"/><circle cx="152" cy="66" r="2"/><circle cx="128" cy="68" r="2"/>',
-    enclave:
-      '<path d="M50 62 h84 l14 -12 h16 l-6 12 h-10 l-8 14 h-76 z"/>' +
-      '<path d="M30 40 h130 v5 h-130 z"/><path d="M92 28 h8 v14 h-8 z"/>' +
-      '<path d="M62 76 h60 v4 h-60 z"/><circle cx="72" cy="52" r="5" class="eye"/>'
-  };
-
-  function pictoFor(type) {
-    var art = PICTO[type] || PICTO.raiders;
-    return '<svg viewBox="0 0 200 90" preserveAspectRatio="xMidYMid meet">' +
-           GROUND + '<g class="sil">' + art + "</g></svg>";
-  }
-  HUD.pictoFor = pictoFor;
 
   /* --- boot ---------------------------------------------------------------- */
   HUD.boot = function (pct, text) {
@@ -580,7 +514,6 @@
     var kind = enc.hazard ? "ENVIRONMENTAL HAZARD"
              : enc.hostile ? "HOSTILE CONTACT" : "CONTACT";
 
-    $("encart").innerHTML = pictoFor(enc.type);
     $("enckind").textContent = kind;
     $("enctitle").textContent = enc.name;
     $("encwhere").textContent = (reg ? reg.name : "WASTELAND") + " · SECTOR " +
