@@ -1,4 +1,4 @@
-# Chryslus NAVCOM — Fallout 2 world-travel screen for Fallout 4
+# Chryslus NAVCOM - Fallout 2 world-travel screen for Fallout 4
 
 A Hearts-of-Iron style travel map for the FO2-in-FO4 conversion. The player
 opens the car's nav computer, sees the wasteland in 3D perspective with the
@@ -6,7 +6,7 @@ Highwayman standing on it, and either plots a fast-travel route or drives the
 thing manually. Random encounters interrupt the trip and hand control back to
 the game.
 
-Built as a **PrismaUI_F4 view** — plain HTML/CSS/JS off disk, no build step.
+Built as a **PrismaUI_F4 view** - plain HTML/CSS/JS off disk, no build step.
 
 ---
 
@@ -18,17 +18,17 @@ GPU 2D renderer. Per Ultralight's own feature list:
 > GPU-accelerated 3D graphics via WebGL 1.0/2.0 is not available. You should
 > use SVG or the 2D canvas for visual effects instead.
 
-3D CSS transforms (`rotateX`, `translate3d`) are also unavailable — Ultralight
+3D CSS transforms (`rotateX`, `translate3d`) are also unavailable - Ultralight
 supports 2D/affine transforms only. So three.js, babylon, css3d and every
 WebGL-based map library are non-starters **inside the game**, even though they
 would work if you opened the same file in Chrome.
 
 The 3D here is therefore a small purpose-built renderer built on Canvas2D:
 
-* **`js/r3.js`** — mat4 math, a perspective camera that orbits a point on the
+* **`js/r3.js`** - mat4 math, a perspective camera that orbits a point on the
   ground, world→screen projection, and painter's-algorithm mesh drawing with a
   single directional light. That is what draws the Highwayman.
-* **`js/terrain.js`** — the map is a real heightfield mesh, not a painted
+* **`js/terrain.js`** - the map is a real heightfield mesh, not a painted
   plane. Every cell has a height, a normal and its own lighting, so mountains
   rise, valleys shade, and the route, the car and the location counters all sit
   on the same surface. Two mip pyramids (colour *and* height) keep the mesh
@@ -47,10 +47,10 @@ The 3D here is therefore a small purpose-built renderer built on Canvas2D:
   boot `terrain.js` forces its surface monotonically downhill from source to
   mouth, ties it to the lake it drains into, carves a channel whose bed sits
   below that surface, and floods it. Open water is impassable, so a river is a
-  real obstacle — crossing it needs a bridge, and bridges are placed wherever a
+  real obstacle - crossing it needs a bridge, and bridges are placed wherever a
   road polyline actually intersects a river polyline, decked at the uncut bank
   height and registered with the terrain as drivable road.
-* **`js/props.js`** — the clutter that makes it a place rather than a sheet:
+* **`js/props.js`** - the clutter that makes it a place rather than a sheet:
   scrub, cacti, dead trees, conifers and rock outcrops chosen by elevation and
   slope; building clusters and a water tower at every settlement; bridges
   placed wherever a road polyline actually intersects a river polyline; birds;
@@ -64,7 +64,7 @@ The 3D here is therefore a small purpose-built renderer built on Canvas2D:
   whole map changes through the day.
 * Location counters are **DOM elements** positioned from projected screen
   coordinates, which keeps their text crisp and gives real hover/click targets
-  — the same trick HOI4 uses for its unit counters.
+  - the same trick HOI4 uses for its unit counters.
 
 All canvas drawing happens under one device-pixel-ratio transform set once per
 frame. Nothing calls `setTransform` mid-frame, which is what previously made
@@ -105,7 +105,7 @@ plugin work touches. The rest is self-contained.
 ## 3. Installing as a PrismaUI view
 
 1. Drop the `fo2-travel` folder wherever your mod keeps its view files, e.g.
-   `Data/PrismaUI/views/fo2-travel/`. Take `fonts/` with it — the interface
+   `Data/PrismaUI/views/fo2-travel/`. Take `fonts/` with it - the interface
    typefaces are loaded from disk relative to the view (§12), and without them
    everything falls back to whatever the system happens to have.
 2. Create the view from your plugin on `kPostLoadGame` / `kNewGame`:
@@ -133,7 +133,7 @@ unfocused, and the view drops back to survey mode.
 
 ---
 
-## 4. Protocol — JS → game
+## 4. Protocol - JS → game
 
 Everything goes through `window.sendDataToF4SE(json)` as a single JSON object
 with `type`, `v` (protocol version) and `t` (timestamp ms).
@@ -141,7 +141,7 @@ with `type`, `v` (protocol version) and `t` (timestamp ms).
 | `type` | when | payload |
 |---|---|---|
 | `ui.ready` | view finished booting | `ui`, `version` |
-| `ui.close` | player pressed EXIT/ESC | — |
+| `ui.close` | player pressed EXIT/ESC | - |
 | `travel.plot` | destination selected (not committed) | `destId`, `destName`, `marker`, `x`, `z`, `hours`, `miles`, `fuel`, `risk` |
 | `travel.begin` | player hit AUTO-TRAVEL | as above + `minutes`, `waypoints[]` (≤24 sparse points) |
 | `travel.progress` | throttled during the drive | `x`, `z`, `pct`, `minutes` |
@@ -157,7 +157,7 @@ with `type`, `v` (protocol version) and `t` (timestamp ms).
 | `log` | diagnostics | `message` |
 
 **`travel.complete` and `location.enter` are the two that matter.** The UI
-never moves the player — it plays the drive, then tells the game where the
+never moves the player - it plays the drive, then tells the game where the
 player ended up, and later that they want to go inside. Do the `MoveTo` and
 the clock advance in Papyrus so saves, cell loading and script state all stay
 consistent.
@@ -166,11 +166,11 @@ consistent.
 a site and has pressed ENTER. The message carries the site three ways, so
 resolve it whichever suits your setup:
 
-* `marker` — the map-marker editor id from `js/worldmap.js` (`FO2_MRK_Modoc`).
+* `marker` - the map-marker editor id from `js/worldmap.js` (`FO2_MRK_Modoc`).
   Best if the plugin keeps a lookup by editor id.
-* `index` — position in `WORLD.LOCATIONS`, which is the order
+* `index` - position in `WORLD.LOCATIONS`, which is the order
   `TravelMarkers` / `InteriorMarkers` must be filled in the CK.
-* `locId` — the short string id (`modoc`), for your own table.
+* `locId` - the short string id (`modoc`), for your own table.
 
 **The view then waits.** It shows *Standby…* and holds the button until the
 game answers with `location.entered` or `location.denied`; after six seconds
@@ -204,7 +204,7 @@ void OnUIMessage(const char* json) {
 
 ### Handling `location.enter`
 
-The whole round trip. `Reply()` is the only part you must not skip — the view
+The whole round trip. `Reply()` is the only part you must not skip - the view
 is sitting on a disabled button until it hears back.
 
 ```cpp
@@ -247,7 +247,7 @@ void OnEnterLocation(const nlohmann::json& msg) {
 }
 ```
 
-If you would rather keep the logic in Papyrus, forward it instead — the
+If you would rather keep the logic in Papyrus, forward it instead - the
 template already has the function:
 
 ```cpp
@@ -271,7 +271,7 @@ assumed enterable, so the view never hides a door the mod does have.
 
 ---
 
-## 5. Protocol — game → JS
+## 5. Protocol - game → JS
 
 One entry point. Call it with a JSON string:
 
@@ -284,19 +284,19 @@ api->Invoke(view, "fo2Message('{\"type\":\"ui.show\"}')");
 | `type` | effect in the view |
 |---|---|
 | `state.sync` / `state.patch` | merge `{ player:{x,z,heading}, vehicle:{fuel,condition}, clock:{year,month,day,hour}, here, discovered:[ids], enterable:[ids]/{id:bool}, theme, weather }` |
-| `travel.approve` | `{destId}` — route confirmed, the drive plays out |
-| `travel.deny` | `{destId, reason}` — aborts with a banner |
+| `travel.approve` | `{destId}` - route confirmed, the drive plays out |
+| `travel.deny` | `{destId, reason}` - aborts with a banner |
 | `travel.arrived` | game finished its `MoveTo` |
 | `encounter.spawn` | force an encounter: `{encType, name, text, hostile, hazard, x, z}` |
-| `encounter.result` | `{id, outcome:"win"/"flee"/"loss", damage, caps}` — resumes or abandons the route |
+| `encounter.result` | `{id, outcome:"win"/"flee"/"loss", damage, caps}` - resumes or abandons the route |
 | `loc.unlock` | `{id}` reveals a location and its fog |
-| `location.entered` | `{locId}` — ENTER accepted; the view closes itself |
-| `location.denied` | `{locId, reason, permanent?}` — refused; `reason` is shown, `permanent` greys the site out for the session |
-| `loc.enterable` | `{id, enterable}` — mark one site as having an interior or not |
+| `location.entered` | `{locId}` - ENTER accepted; the view closes itself |
+| `location.denied` | `{locId, reason, permanent?}` - refused; `reason` is shown, `permanent` greys the site out for the session |
+| `loc.enterable` | `{id, enterable}` - mark one site as having an interior or not |
 | `clock.set` | `{year, month, day, hour, minute}` |
 | `ui.show` / `ui.hide` / `ui.toggle` | visibility |
 
-If the game never sends anything, the view still runs standalone — it simulates
+If the game never sends anything, the view still runs standalone - it simulates
 its own clock, fuel and encounters. That is deliberate: you can ship the UI and
 wire the game up piece by piece.
 
@@ -329,12 +329,12 @@ var CONFIG = {
 };
 ```
 
-Form ids are **local hex without the file-index byte** — `0x0F000801` is
+Form ids are **local hex without the file-index byte** - `0x0F000801` is
 written `"801"`. ESL prefixes are resolved for you.
 
 `papyrus/FO2Travel_MapBridge.psc` polls those globals and does the `MoveTo` and
 clock advance. Fill `TravelMarkers[]` in the CK **in the same order as
-`WORLD.LOCATIONS`** — index 0 is Arroyo.
+`WORLD.LOCATIONS`** - index 0 is Arroyo.
 
 ---
 
@@ -348,7 +348,7 @@ with no C++ at all:
 | `FO2_EnterIndex` | `808` | index into `TravelMarkers` / `InteriorMarkers` |
 | `FO2_EnterReq` | `809` | ticks up on each request |
 
-It is a **counter, not a flag** — walking into the same town twice in a row has
+It is a **counter, not a flag** - walking into the same town twice in a row has
 to read as two requests, and a flag would only ever fire once.
 
 Papyrus cannot call into JS, so the script answers through the same global:
@@ -361,16 +361,16 @@ in the template already does all of this.
 
 Everything about the map is data in `js/worldmap.js`:
 
-* **Locations** — traced off the FO2 world map into a 1000×1000 grid using
+* **Locations** - traced off the FO2 world map into a 1000×1000 grid using
   `px(x, y)` against the 729×775 reference image, so you can read new
   coordinates straight off the same map. Each entry carries `kind`, `region`,
   `danger`, `services`, `desc` and `marker` (the CK editor id it maps to).
-* **Roads** — `{a, b, w, via[]}`. `w` is road quality (1.0 highway, 0.7 road,
+* **Roads** - `{a, b, w, via[]}`. `w` is road quality (1.0 highway, 0.7 road,
   0.45 track) and drives speed, encounter chance and how the road is drawn.
   `via` points are run through a Catmull-Rom spline so routes curve.
-* **Encounters** — per-region weights, plus `hostile` / `hazard` flags. `type`
+* **Encounters** - per-region weights, plus `hostile` / `hazard` flags. `type`
   is what gets sent to the game as `encType`.
-* **Scale** — `milesPerUnit` (map distance → the mileage shown) and
+* **Scale** - `milesPerUnit` (map distance → the mileage shown) and
   `minutesPerUnit` (fast-travel clock rate). `driveTimeFactor` slows the clock
   during manual driving so a road trip does not eat a game week.
 
@@ -400,7 +400,7 @@ URL hash flags jump straight to a state:
 | `#storm` | rain/storm weather |
 | `#fps` | on-canvas frame-cost readout |
 | `#quality=0..3` | lock a terrain quality tier instead of auto-tuning |
-| — | the theme is remembered between loads; press `C` or use the top-bar switch |
+| - | the theme is remembered between loads; press `C` or use the top-bar switch |
 | `#drive&boost&speed=34` | driving with the overcharge held open (dev only) |
 | `#drive&at=600,513&heading=0.64` | drop the car at a world position, facing a bearing |
 | `#drive&pitch=0.25&dist=110` | override the chase camera, e.g. to inspect a bridge |
@@ -410,13 +410,13 @@ mode · **WASD** drive · **SHIFT** boost · **SPACE** brake (or pause in survey
 · **ENTER** auto-travel · **P** pin & drive · **F** headlights · **R** recenter
 · **0–3** time rate · **C** sand/terminal · **E** enter the site you are parked at · **ESC** clear/abort/exit.
 
-The time-rate control folds away in manual driving — the clock there follows
-the wheels, not a multiplier — and folds back in on the way out.
+The time-rate control folds away in manual driving - the clock there follows
+the wheels, not a multiplier - and folds back in on the way out.
 
 ## 9. Performance
 
 The terrain mesh is the only expensive pass. Measured at 1600×900 on
-**software rasterization** (headless Chrome, `--disable-gpu`) — a deliberate
+**software rasterization** (headless Chrome, `--disable-gpu`) - a deliberate
 worst case, since Ultralight rasterizes to the GPU:
 
 | pass | cost |
@@ -461,7 +461,7 @@ which Canvas2D gives you for free:
   used to make the map look like a chequerboard.
 * **Seam overlap.** Canvas2D antialiases every polygon edge, so two quads that
   share an edge each cover it only half and the background bleeds through as a
-  hairline — a lattice over the whole map. Each quad is scaled a fraction of a
+  hairline - a lattice over the whole map. Each quad is scaled a fraction of a
   pixel about its own centre so neighbours overlap and close it.
 * **LOD hysteresis.** The mesh step is a power of two (the colour and height
   mips are indexed by a shift), so a camera sitting on a level boundary used to
@@ -489,7 +489,7 @@ asphalt tells you nothing about where the roads run.
 
 `vehicle.js` samples the ground under all four wheels every frame. That gives
 the body height (ride on the highest axle, so no corner buries itself), the
-pitch and roll to sit flat on a slope, and the grade the engine has to fight —
+pitch and roll to sit flat on a slope, and the grade the engine has to fight -
 climbing costs power, descending pulls you along, and anything above a 1.15
 grade is a wall. Gravity along the grade is deliberately weaker than the
 engine, so every hilltop stays reachable - a location on high ground must never
@@ -507,7 +507,7 @@ Speeds, in world units per second (`× 1.89` for the dashboard reading):
 **Overcharge** is `SHIFT`. It is a reservoir, not a throttle multiplier: 100%
 drains in about six seconds, refills at 9%/s after a second of cooldown, and it
 only engages under power with a live cell and a forward gear. It raises the
-ceiling as well as the acceleration — scaling the throttle alone, which is what
+ceiling as well as the acceleration - scaling the throttle alone, which is what
 this used to do, did nothing once the car was already at top speed. `TOP_BOOST`
 is the hard cap, so nothing (a downhill run included) puts the dashboard past
 85.
@@ -517,7 +517,7 @@ is the hard cap, so nothing (a downhill run included) puts the dashboard past
 `buildBridges()` puts a span wherever a road crosses a river. Placement walks
 outward along the road from the crossing to the first ground that is dry, and
 dry for another six units, on each side; those two points give the abutment
-heights and the span length. The deck is **pitched** to meet both banks — a
+heights and the span length. The deck is **pitched** to meet both banks - a
 single height taken from the higher bank leaves the low end hanging in the air,
 which is what used to make spans look like they were floating. Two more pieces
 finish the job: concrete abutment blocks under each end so an uneven bank
@@ -540,7 +540,7 @@ no extra work.
 
 ## 10. What is verified, and what is not
 
-**Verified** — the whole view was run headlessly and screenshotted in every
+**Verified** - the whole view was run headlessly and screenshotted in every
 mode: boot, survey, route plotting, auto-travel with a live progress rail,
 manual driving with the chase camera and an off-screen waypoint cue, night,
 storm, and the encounter prompt. The driving model is unit-tested headlessly:
@@ -549,11 +549,11 @@ over 600 simulated steps of steering across terrain the car never once dropped
 below the ground surface. Hydrology is checked the same way: every river's
 surface is verified monotonically downhill from source to mouth, open water
 reports as impassable, bridge decks report as road, and a car driven at a
-bridge crosses it — roughly 150 frames on the deck, zero in the water, zero
+bridge crosses it - roughly 150 frames on the deck, zero in the water, zero
 blocked. Every bridge is checked for gaps at both ends and for a continuous
 drivable surface across the span and its approaches: sampling every half unit
 from one embankment foot to the other finds no step over 1.6 units on any of
-the four. Ground clipping is re-checked after every change — four bridge
+the four. Ground clipping is re-checked after every change - four bridge
 crossings plus eight cross-country runs of 1500 steps each, re-posing the car
 the way the renderer does, report zero frames below the surface. Rendering was checked at both 1× and 2×
 device-pixel-ratio, since a HiDPI-only projection bug is what previously made
@@ -561,7 +561,7 @@ the counters float off the map. All 420 location pairs route with correct
 endpoints, clock rollover is exact, and encounter draws match the weight
 tables. `index.html` carries a permanent `window.onerror` trap that writes the
 failure into the boot log and to `console.error`, because Ultralight otherwise
-fails silently — a JS error just leaves you a blank view. Register a
+fails silently - a JS error just leaves you a blank view. Register a
 `ConsoleMessageCallback` in `OnDomReadyCallback` and it lands in your F4SE log.
 
 **Known limits.** Shading is interpolated per quad, not per pixel, because
@@ -572,7 +572,7 @@ still step. Raising `TARGET_QUADS` past the top tier is the knob, and it is a
 real cost even on the GPU; the honest fix would be WebGL, which Ultralight does
 not offer.
 
-**Not verified** — anything that needs the game:
+**Not verified** - anything that needs the game:
 
 * `papyrus/FO2Travel_MapBridge.psc` has not been compiled against a load order.
   It is a template: wire the properties in the CK and adapt the encounter
@@ -600,7 +600,7 @@ counters immediately reclaim the space.
 
 **Entering a site.** Park at a location and a prompt rises above the dashboard
 with the place's name and what it offers: `E` or the button hands off to the
-game (§4). It is offered three ways — the prompt, `E`, and the route panel's
+game (§4). It is offered three ways - the prompt, `E`, and the route panel's
 primary action, which becomes *Enter <NAME>* when the site you have selected is
 the one you are standing on. Driving more than 18 units away drops it again, so
 it never claims you can walk into a settlement you left ten miles back.
@@ -616,22 +616,22 @@ The screen comes in two themes, switched by the **SAND / TERM** control in the
 top bar, by **C**, or by the game (`{ theme: "green" }` on any inbound
 message). The choice persists in `localStorage`.
 
-* **sand** — the Fallout 2 world map. Desert ochre, amber chrome, the terrain
+* **sand** - the Fallout 2 world map. Desert ochre, amber chrome, the terrain
   shaded the way a paper map is.
-* **green** — a Vault-Tec terminal. One phosphor, brightness carrying all the
+* **green** - a Vault-Tec terminal. One phosphor, brightness carrying all the
   meaning, tight scan lines and a bloom on the text.
 
-`js/theme.js` owns both. The 3D world is *not* maintained as two palettes —
+`js/theme.js` owns both. The 3D world is *not* maintained as two palettes -
 it is recoloured at two choke points:
 
 | choke point | covers |
 |---|---|
 | `TERRAIN.css()` | every ground quad |
-| `R3.shade()` | every mesh face — props, towns, bridges, the car |
+| `R3.shade()` | every mesh face - props, towns, bridges, the car |
 
 Both build the fill string for their caller, so a ramp applied there catches
-the whole scene at once. Everything drawn by hand — sky, water, roads, the
-route line — goes through `TC()` in `main.js`, which forwards to the same
+the whole scene at once. Everything drawn by hand - sky, water, roads, the
+route line - goes through `TC()` in `main.js`, which forwards to the same
 ramp. Both choke points cache by 5-bit-per-channel bucket, so `THEME.set()`
 drops those caches on the way through.
 
@@ -639,7 +639,7 @@ A ramp maps **luminance** to a colour, so relative brightness survives the
 change: a lit hillside stays brighter than its shadow, tarmac stays darker
 than sand. The green ramp is deliberately not linear. The map's sand sits
 around 0.7 luminance, and mapping that straight across gives a flat lime field
-with no depth, so the curve has two halves — the terrain band is crushed
+with no depth, so the curve has two halves - the terrain band is crushed
 nearly to black, and only the top of the range (paint, water highlights, the
 route, the counters) is allowed to reach full phosphor. They are blended, not
 spliced, so a lit hillside crossing between them does not step.
@@ -667,7 +667,7 @@ Fallout's interface type, across the series, is condensed grotesque: Fallout
 | role | original | where it is used here |
 |---|---|---|
 | `--display` | Gothic 821 Condensed | panel headers, location names, HIGHWAYMAN, encounter titles, the brand |
-| `--body` | Monofonto / JH Fallout | lists, readouts, descriptions, hints — most of the screen |
+| `--body` | Monofonto / JH Fallout | lists, readouts, descriptions, hints - most of the screen |
 | `--ui` | Monofonto / Overseer | mode switch, theme switch, action and top-bar buttons |
 | `--data` | Monofonto | fixed-width readouts where columns must line up |
 
@@ -678,7 +678,7 @@ tiers:
    files in `fonts/` at all.
 2. **A drop-in slot.** `gothic821.ttf`, `monofonto.ttf`, `overseer.ttf` and
    `jh-fallout.ttf` each have an `@font-face` waiting. Add the file and the
-   view switches to the original — no code change, no rebuild. A slot with no
+   view switches to the original - no code change, no rebuild. A slot with no
    file behind it simply fails to load and the stack moves on.
 3. **A stand-in that ships**, all SIL OFL (`fonts/OFL.txt`): **Anton** for the
    display role, **Oswald** for body and UI, **Share Tech Mono** for data.
@@ -687,20 +687,20 @@ tiers:
 
 ### fo2-terminal.ttf
 
-A pixel face authored here, kept but **not used by default** — it reads as
+A pixel face authored here, kept but **not used by default** - it reads as
 8-bit rather than as Fallout. Add `"FO2 Terminal"` to the `--body` stack in
 `travel.css` to switch it on. The
 glyphs are pixel grids, merged into rectangular contours and emitted as a real
-TrueType file — 107 of them, ASCII plus the box, triangle and disc marks the
+TrueType file, 106 of them, ASCII plus the box, triangle and disc marks the
 markers use.
 
 The grid is seven rows above the baseline and two below, at 128 units per pixel
 in a 1280-unit em. That puts the cap height at 0.70 em, the same optical size
 as the system faces the layout was built against, so nothing had to be
 re-measured. **Ten pixel rows per em means font sizes that are multiples of
-10px land on whole pixels and stay sharp** — the stylesheet uses 10 / 15 / 20 /
+10px land on whole pixels and stay sharp** - the stylesheet uses 10 / 15 / 20 /
 30 throughout for that reason. Sizes in between still render, just softer.
 
 To regenerate or extend it, the generator is a single script; add a grid to the
 `G` table in `fonts/make-font.py` and rebuild. Keep the family name
-`FO2 Terminal` — `travel.css` names it in the `--body` stack.
+`FO2 Terminal` - `travel.css` names it in the `--body` stack.
