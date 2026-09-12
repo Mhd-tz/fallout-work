@@ -273,7 +273,7 @@
       '<div class="actions">' +
         (atHere
           ? '<button class="act primary" id="actEnter"' + (canEnter ? "" : " disabled") +
-              '><span class="k">[ENTER]</span> ' +
+              '><span class="k">[L]</span> ' +
               (canEnter ? "Enter " + loc.name : "No Interior Built") + "</button>"
           : '<button class="act primary" id="actGo"' + ((fuelOk && !enRoute) ? "" : " disabled") +
               '><span class="k">[ENTER]</span> ' +

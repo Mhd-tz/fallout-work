@@ -332,7 +332,12 @@
       HUD.toast("LOCATION ADDED · " + l.name, "good");
     });
 
-    B.on("ui.show", function () { state.hidden = false; document.getElementById("app").style.display = ""; });
+    B.on("ui.show", function () {
+      state.hidden = false;
+      document.getElementById("app").style.display = "";
+      keys = {};
+      resize();
+    });
     B.on("ui.hide", function () { state.hidden = true; document.getElementById("app").style.display = "none"; });
     B.on("ui.toggle", function () {
       state.hidden = !state.hidden;
@@ -517,7 +522,7 @@
     refreshEnterPrompt();
     refreshDossier();
     refreshList();
-    HUD.hint('<kbd>ENTER</kbd> leave ' + loc.name + ' &nbsp; <kbd>ESC</kbd> leave');
+    HUD.hint('<kbd>L</kbd> leave ' + loc.name + ' &nbsp; <kbd>ESC</kbd> leave');
   }
 
   /** Back out to the car. `quiet` when the game announced it, not the player. */
@@ -544,7 +549,7 @@
    * ====================================================================== */
   function beginTravel() {
     if (!state.route || !state.selected) return;
-    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [ENTER]", "warn"); return; }
+    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [L]", "warn"); return; }
     // Departing again while already under way rebuilt the course from the
     // last known stop and reset the odometer along it, which snapped the car
     // back to where it set off. One course at a time.
@@ -791,7 +796,7 @@
    * MANUAL DRIVING
    * ====================================================================== */
   function pinAndDrive() {
-    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [ENTER]", "warn"); return; }
+    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [L]", "warn"); return; }
     if (!state.selected) return;
     var loc = W.loc(state.selected);
     state.waypoint = { x: loc.x, z: loc.z, id: loc.id, name: loc.name };
@@ -970,7 +975,7 @@
   function setMode(mode) {
     if (state.mode === mode) return;
     if (mode === "drive" && state.inside) {
-      HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [ENTER]", "warn");
+      HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [L]", "warn");
       return;
     }
     var prev = state.mode;
@@ -2287,6 +2292,11 @@
   function frame(ts) {
     requestAnimationFrame(frame);
     if (state.hidden) return;
+    // Ultralight does not reliably raise a resize event when the game window
+    // changes under the view (fullscreen toggles, the view created before
+    // the window settled). A stale viewport puts every click and marker in
+    // the wrong place, so check the size every frame; it is two reads.
+    if (global.innerWidth !== viewW || global.innerHeight !== viewH) resize();
     var t0 = performance.now();
     var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0.016;
     last = ts;
@@ -2463,12 +2473,11 @@
           setMode(state.mode === "drive" ? "survey" : "drive");
           break;
         case "enter":
-          // ENTER / RETURN: leave the site you are inside, start the plotted
-          // course if there is one, otherwise enter the site you are parked
-          // at. The route panel's primary action shows which of these it is.
-          e.preventDefault();
+          if (state.selected) beginTravel();
+          break;
+        case "l":
+          // Enter the site you are parked at; leave it once you are inside.
           if (state.inside) leaveLocation(false);
-          else if (state.selected && state.route) beginTravel();
           else enterLocation();
           break;
         case "p":
@@ -2528,8 +2537,10 @@
     }
   }
 
+  var viewW = 0, viewH = 0;
   function resize() {
     var w = global.innerWidth, h = global.innerHeight;
+    viewW = w; viewH = h;
     canvas.width = Math.round(w * DPR);
     canvas.height = Math.round(h * DPR);
     canvas.style.width = w + "px";
