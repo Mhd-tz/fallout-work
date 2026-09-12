@@ -361,7 +361,19 @@
       car.x = m.player.x; car.z = m.player.z;
       if (m.player.heading !== undefined) car.heading = m.player.heading;
     }
-    if (m.here) { state.here = m.here; state.discovered[m.here] = true; }
+    if (m.here) {
+      state.here = m.here;
+      state.discovered[m.here] = true;
+      var hereLocation = W.loc(m.here);
+      if (hereLocation) {
+        // No explicit player position: the car is parked at the site.
+        if (!m.player) { car.x = hereLocation.x; car.z = hereLocation.z; }
+        car.speed = 0;
+        T.revealCircle(hereLocation.x, hereLocation.z, 118);
+        recenter();
+      }
+      refreshEnterPrompt();
+    }
     if (m.discovered && m.discovered.length) {
       m.discovered.forEach(function (id) {
         state.discovered[id] = true;
@@ -605,6 +617,14 @@
     clearSelection();
     refreshList();
     HUD.toast("ARRIVED · " + loc.name + " · " + TR.Clock.stamp(), "good");
+
+    // The Highwayman plugin has one hand-off, PlayerTravelToLocation(key),
+    // and arriving is when Fallout 2 put you in the town, so call it here
+    // and lock the map the same way ENTER does.
+    if (B.hasTravelBinding() && B.travelTo(loc)) {
+      goInside(loc);
+      controller.exit();
+    }
   }
 
   function stepTravel(dt) {

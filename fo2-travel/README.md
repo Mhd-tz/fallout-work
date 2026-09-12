@@ -133,6 +133,44 @@ survey mode, which is the only visible effect.
 
 ---
 
+### 3b. Wiring to the Highwayman plugin (plain strings, no JSON)
+
+The mod's own plugin (`Highwayman_Map.cpp`) does not speak the JSON channel
+in §4. It binds two plain-string events and calls one JS function, and the
+view supports that contract directly:
+
+| direction | call | what it carries |
+|---|---|---|
+| JS → C++ | `PlayerTravelToLocation(key)` | one string naming the site. By default the `marker` field from `js/worldmap.js` (`FO2_MRK_Arroyo`, `FO2_MRK_Klamath`, ...); `CONFIG.travelKey` in `js/bridge.js` can switch it to `name` (`ARROYO`) or `id` (`arroyo`). |
+| JS → C++ | `requestClose()` | the player pressed EXIT, or the view is done after a hand-off |
+| C++ → JS | `LoadHighwayman("<location full name>")` | called when the plugin shows the map; the view parks the car at the site whose name, marker or id matches (case-insensitive), recentres, and releases any *inside* lock. An unknown name leaves the car where it was. The quotes the plugin wraps the argument in are stripped. |
+
+The view calls `PlayerTravelToLocation` in two places, and both are the same
+hand-off: when an **auto-travel arrives** (Fallout 2 put you in the town at
+that moment) and when the player presses **ENTER** at a site they drove to.
+After either, the map locks itself as *inside* and calls `requestClose()`;
+the next `LoadHighwayman(...)` unlocks it. Nothing else is required of the
+plugin: no reply, no JSON, no Papyrus globals.
+
+What the plugin needs on its side:
+
+* The markers registered through `AddHighwaymanMarkerLocation(name, ref)`
+  must use the same strings the view sends, i.e. the `marker` column of
+  `js/worldmap.js` (or change `CONFIG.travelKey`, or edit that column to
+  match the ESP's editor IDs; it is a plain table).
+* `CreateView("Highwayman/index.html", ...)` means the view folder is
+  `Data/PrismaUI/views/Highwayman/`; this folder can simply be renamed.
+* One thing to fix in the plugin as given: `HighwaymanMarkersMap` is keyed
+  by `const char*`, which hashes the *pointer*, not the text, so a string
+  arriving from JS will never match a key registered from Papyrus and
+  `.at(arg)` will throw. Key it by `std::string` (and check `contains`
+  before `at`; the debug line currently calls `at` first).
+
+When the plugin binds `PlayerTravelToLocation` and not `sendDataToF4SE`,
+the JSON messages below are still built and written to the console (which
+the plugin forwards to its log via `RegisterConsoleCallback`), but nothing
+listens for them; that is expected.
+
 ## 4. Protocol - JS → game
 
 Everything goes through `window.sendDataToF4SE(json)` as a single JSON object

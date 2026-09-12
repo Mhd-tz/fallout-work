@@ -12,6 +12,18 @@
  *                  The callback runs on the game thread, so RE:: access is
  *                  safe directly inside it.
  *
+ *  1b. JS -> C++   window.PlayerTravelToLocation(key)   (Highwayman plugin)
+ *                  The mod's own plugin binds this one plain-string event
+ *                  instead of the JSON channel: `key` names the site (the
+ *                  marker string from worldmap.js by default, see
+ *                  CONFIG.travelKey) and the plugin moves the player there.
+ *                  It also binds requestClose() and, when it opens the map,
+ *                  calls LoadHighwayman("<current location name>") so the
+ *                  view knows where the car is. When this binding exists
+ *                  and sendDataToF4SE does not, the JSON messages below are
+ *                  still built (they drive the mock and the log) but go
+ *                  nowhere; the two calls above are the whole contract.
+ *
  *  2. C++ -> JS    api->InteropCall(view, "fo2Message", jsonString)
  *                  or api->Invoke(view, "fo2Message('{...}')")
  *                  Single inbound entry point; see INBOUND below.
@@ -34,6 +46,11 @@
    * prefixes automatically.
    */
   var CONFIG = {
+    // Which field of a worldmap.js location is passed to
+    // PlayerTravelToLocation(): "marker" (FO2_MRK_Arroyo), "name" (ARROYO)
+    // or "id" (arroyo). It must match the name the plugin's markers were
+    // registered under (AddHighwaymanMarkerLocation in Papyrus).
+    travelKey: "marker",
     esp: "FO2Wasteland.esp",
     script: "FO2Travel_MapBridge",       // Papyrus script hosting the properties
     questFormId: "800",                  // quest form the script sits on
@@ -61,16 +78,43 @@
   };
 
   /* --- transport detection ------------------------------------------------ */
-  function hasNative() { return typeof global.sendDataToF4SE === "function"; }
+  function hasJsonChannel() { return typeof global.sendDataToF4SE === "function"; }
+  function hasTravelBinding() { return typeof global.PlayerTravelToLocation === "function"; }
+  function hasNative() { return hasJsonChannel() || hasTravelBinding(); }
+  Bridge.hasTravelBinding = hasTravelBinding;
+
+  /** The string the plugin wants for a site. */
+  Bridge.travelKey = function (loc) {
+    var k = CONFIG.travelKey;
+    return String(loc[k] !== undefined ? loc[k] : loc.marker);
+  };
+
+  /**
+   * Hand the player to the plugin: one plain string, nothing else. Returns
+   * false when the plugin has not bound the event (browser, or a plugin that
+   * speaks the JSON channel instead).
+   */
+  Bridge.travelTo = function (loc) {
+    if (!hasTravelBinding()) return false;
+    var key = Bridge.travelKey(loc);
+    try { global.PlayerTravelToLocation(key); }
+    catch (e) { console.error("[FO2Travel] PlayerTravelToLocation threw", e); return false; }
+    console.log("[FO2Travel] PlayerTravelToLocation(" + key + ")");
+    return true;
+  };
 
   function rawSend(obj) {
     var json;
     try { json = JSON.stringify(obj); }
     catch (e) { console.error("[FO2Travel] payload not serialisable", e); return; }
 
-    if (hasNative()) {
+    if (hasJsonChannel()) {
       try { global.sendDataToF4SE(json); }
       catch (e2) { console.error("[FO2Travel] sendDataToF4SE threw", e2); }
+    } else if (hasTravelBinding()) {
+      // Plain-string plugin: no JSON listener, so the message only goes to
+      // the console (which the plugin forwards to its log).
+      console.log("[FO2Travel] " + obj.type + " " + json);
     } else {
       Bridge.mock = true;
       Mock.receive(obj);
@@ -156,6 +200,36 @@
     if (!o.type) o.type = type;
     return o;
   }
+
+  /**
+   * The Highwayman plugin calls this when it shows the map, with the full
+   * name of the location the player is standing in (it formats the argument
+   * as a quoted string, so the quotes are stripped here). Matched against
+   * name, marker and id, case-insensitively; an unknown name leaves the car
+   * where it was. Either way the view treats it as the game re-opening the
+   * map, which also releases the "inside" lock.
+   */
+  global.LoadHighwayman = function (arg) {
+    var raw = String(arg === undefined || arg === null ? "" : arg).trim();
+    if (raw.length >= 2 && raw.charAt(0) === '"' && raw.charAt(raw.length - 1) === '"') {
+      raw = raw.slice(1, -1);
+    }
+    var want = raw.trim().toLowerCase();
+    var hit = null;
+    if (want && global.WORLD) {
+      var L = global.WORLD.LOCATIONS;
+      for (var i = 0; i < L.length; i++) {
+        var l = L[i];
+        if (String(l.name).toLowerCase() === want ||
+            String(l.marker).toLowerCase() === want ||
+            String(l.id).toLowerCase() === want) { hit = l; break; }
+      }
+    }
+    console.log("[FO2Travel] LoadHighwayman(" + raw + ") -> " + (hit ? hit.id : "no match"));
+    var sync = { type: "state.sync" };
+    if (hit) { sync.here = hit.id; sync.player = { x: hit.x, z: hit.z }; }
+    global.fo2Message(sync);
+  };
 
   /* PrismaUI calls window.init() once the view's DOM is ready. */
   global.init = function () {
@@ -283,6 +357,20 @@
       x: +loc.x.toFixed(2), z: +loc.z.toFixed(2),
       services: loc.services || []
     });
+    if (hasTravelBinding()) {
+      // The plugin moves the player inside PlayerTravelToLocation itself and
+      // has no reply channel, so a successful call is the acknowledgement.
+      if (Bridge.travelTo(loc)) {
+        setTimeout(function () {
+          global.fo2Message({ type: "location.entered", locId: loc.id });
+        }, 0);
+      } else {
+        setTimeout(function () {
+          global.fo2Message({ type: "location.denied", locId: loc.id, reason: "plugin call failed" });
+        }, 0);
+      }
+      return msg;
+    }
     Bridge.pollEnterAck(loc.id);
     return msg;
   };
