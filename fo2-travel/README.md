@@ -453,8 +453,8 @@ URL hash flags jump straight to a state:
 
 Controls: **LMB** pan · **RMB** rotate/tilt · **wheel** zoom · **TAB** drive
 mode · **WASD** drive · **SHIFT** boost · **SPACE** brake (or pause in survey)
-· **ENTER** auto-travel · **P** pin & drive · **F** headlights · **R** recenter
-· **0–3** time rate · **C** sand/terminal · **V** terrain/chart · **E** enter the site you are parked at · **ESC** clear/abort/exit.
+· **ENTER** start the plotted course, or with nothing plotted enter (and later leave) the site you are parked at · **P** pin & drive · **F** headlights · **R** recenter
+· **0–3** time rate · **C** sand/terminal · **V** terrain/chart · **ESC** clear/abort/exit.
 
 The time-rate control folds away in manual driving - the clock there follows
 the wheels, not a multiplier - and folds back in on the way out.
@@ -647,8 +647,8 @@ something. `HUD.refreshPanelRects()` is called on every fold, so the map
 counters immediately reclaim the space.
 
 **Entering a site.** Park at a location and a prompt rises above the dashboard
-with the place's name and what it offers: `E` or the button hands off to the
-game (§4). It is offered three ways - the prompt, `E`, and the route panel's
+with the place's name and what it offers: `ENTER` or the button hands off to
+the game (§4). It is offered three ways - the prompt, `ENTER`, and the route panel's
 primary action, which becomes *Enter <NAME>* when the site you have selected is
 the one you are standing on. Rolling within 24 units of a site parks you at
 it, in drive mode or by auto-travel; driving more than 32 units away drops
@@ -657,7 +657,7 @@ miles back. The two radii differ so the prompt cannot flicker at the edge.
 
 Once the game answers `location.entered` the map is **locked inside** that
 site: the car is parked, drive mode, auto-travel and pinning are refused, and
-the prompt turns into LEAVE (`E` / `ESC`). In the game the view closes at
+the prompt turns into LEAVE (`ENTER` / `ESC`). In the game the view closes at
 that point anyway; the lock is what stops the mock, or the seconds before the
 close lands, from letting the car roll off to the next town without its
 driver. The lock lifts on `location.exited`, on any `state.sync` (the game

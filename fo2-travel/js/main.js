@@ -517,7 +517,7 @@
     refreshEnterPrompt();
     refreshDossier();
     refreshList();
-    HUD.hint('<kbd>E</kbd> leave ' + loc.name + ' &nbsp; <kbd>ESC</kbd> leave');
+    HUD.hint('<kbd>ENTER</kbd> leave ' + loc.name + ' &nbsp; <kbd>ESC</kbd> leave');
   }
 
   /** Back out to the car. `quiet` when the game announced it, not the player. */
@@ -544,7 +544,7 @@
    * ====================================================================== */
   function beginTravel() {
     if (!state.route || !state.selected) return;
-    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [E]", "warn"); return; }
+    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [ENTER]", "warn"); return; }
     // Departing again while already under way rebuilt the course from the
     // last known stop and reset the odometer along it, which snapped the car
     // back to where it set off. One course at a time.
@@ -791,7 +791,7 @@
    * MANUAL DRIVING
    * ====================================================================== */
   function pinAndDrive() {
-    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [E]", "warn"); return; }
+    if (state.inside) { HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [ENTER]", "warn"); return; }
     if (!state.selected) return;
     var loc = W.loc(state.selected);
     state.waypoint = { x: loc.x, z: loc.z, id: loc.id, name: loc.name };
@@ -970,7 +970,7 @@
   function setMode(mode) {
     if (state.mode === mode) return;
     if (mode === "drive" && state.inside) {
-      HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [E]", "warn");
+      HUD.toast("LEAVE " + W.loc(state.inside).name + " FIRST [ENTER]", "warn");
       return;
     }
     var prev = state.mode;
@@ -2463,7 +2463,13 @@
           setMode(state.mode === "drive" ? "survey" : "drive");
           break;
         case "enter":
-          if (state.selected) beginTravel();
+          // ENTER / RETURN: leave the site you are inside, start the plotted
+          // course if there is one, otherwise enter the site you are parked
+          // at. The route panel's primary action shows which of these it is.
+          e.preventDefault();
+          if (state.inside) leaveLocation(false);
+          else if (state.selected && state.route) beginTravel();
+          else enterLocation();
           break;
         case "p":
           if (state.selected) pinAndDrive();
@@ -2479,7 +2485,6 @@
           HUD.toast("HEADLIGHTS " + (car.lightsOn ? "ON" : "OFF"));
           break;
         case "r": recenter(); break;
-        case "e": enterLocation(); break;
         case "c": setTheme(THEME.name === "sand" ? "green" : "sand"); break;
         case "v": setView(state.view === "2d" ? "3d" : "2d"); break;
         case "0": case "1": case "2": case "3":
