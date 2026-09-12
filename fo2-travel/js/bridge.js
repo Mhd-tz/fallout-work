@@ -15,7 +15,7 @@
  *  1b. JS -> C++   window.PlayerTravelToLocation(key)   (Highwayman plugin)
  *                  The mod's own plugin binds this one plain-string event
  *                  instead of the JSON channel: `key` names the site (the
- *                  marker string from worldmap.js by default, see
+ *                  `key` column of worldmap.js, e.g. "Klamath"; see
  *                  CONFIG.travelKey) and the plugin moves the player there.
  *                  It also binds requestClose() and, when it opens the map,
  *                  calls LoadHighwayman("<current location name>") so the
@@ -47,10 +47,10 @@
    */
   var CONFIG = {
     // Which field of a worldmap.js location is passed to
-    // PlayerTravelToLocation(): "marker" (FO2_MRK_Arroyo), "name" (ARROYO)
-    // or "id" (arroyo). It must match the name the plugin's markers were
-    // registered under (AddHighwaymanMarkerLocation in Papyrus).
-    travelKey: "marker",
+    // PlayerTravelToLocation(): "key" (Klamath), "marker" (FO2_MRK_Klamath),
+    // "name" (KLAMATH) or "id" (klamath). It must match the name the
+    // plugin's markers were registered under (AddHighwaymanMarkerLocation).
+    travelKey: "key",
     esp: "FO2Wasteland.esp",
     script: "FO2Travel_MapBridge",       // Papyrus script hosting the properties
     questFormId: "800",                  // quest form the script sits on
@@ -86,7 +86,7 @@
   /** The string the plugin wants for a site. */
   Bridge.travelKey = function (loc) {
     var k = CONFIG.travelKey;
-    return String(loc[k] !== undefined ? loc[k] : loc.marker);
+    return String(loc[k] !== undefined ? loc[k] : loc.key);
   };
 
   /**
@@ -220,7 +220,8 @@
       var L = global.WORLD.LOCATIONS;
       for (var i = 0; i < L.length; i++) {
         var l = L[i];
-        if (String(l.name).toLowerCase() === want ||
+        if (String(l.key).toLowerCase() === want ||
+            String(l.name).toLowerCase() === want ||
             String(l.marker).toLowerCase() === want ||
             String(l.id).toLowerCase() === want) { hit = l; break; }
       }

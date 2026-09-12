@@ -141,9 +141,9 @@ view supports that contract directly:
 
 | direction | call | what it carries |
 |---|---|---|
-| JS → C++ | `PlayerTravelToLocation(key)` | one string naming the site. By default the `marker` field from `js/worldmap.js` (`FO2_MRK_Arroyo`, `FO2_MRK_Klamath`, ...); `CONFIG.travelKey` in `js/bridge.js` can switch it to `name` (`ARROYO`) or `id` (`arroyo`). |
+| JS → C++ | `PlayerTravelToLocation(key)` | one string naming the site: the `key` column of `js/worldmap.js` (`Arroyo`, `Klamath`, `TheDen`, `NewReno`, `Vault13`, ...). `CONFIG.travelKey` in `js/bridge.js` can switch it to `marker`, `name` or `id` instead. |
 | JS → C++ | `requestClose()` | the player pressed EXIT, or the view is done after a hand-off |
-| C++ → JS | `LoadHighwayman("<location full name>")` | called when the plugin shows the map; the view parks the car at the site whose name, marker or id matches (case-insensitive), recentres, and releases any *inside* lock. An unknown name leaves the car where it was. The quotes the plugin wraps the argument in are stripped. |
+| C++ → JS | `LoadHighwayman("<location full name>")` | called when the plugin shows the map; the view parks the car at the site whose key, name, marker or id matches (case-insensitive), recentres, and releases any *inside* lock. An unknown name leaves the car where it was. The quotes the plugin wraps the argument in are stripped. |
 
 The view calls `PlayerTravelToLocation` in two places, and both are the same
 hand-off: when an **auto-travel arrives** (Fallout 2 put you in the town at
@@ -155,9 +155,11 @@ plugin: no reply, no JSON, no Papyrus globals.
 What the plugin needs on its side:
 
 * The markers registered through `AddHighwaymanMarkerLocation(name, ref)`
-  must use the same strings the view sends, i.e. the `marker` column of
-  `js/worldmap.js` (or change `CONFIG.travelKey`, or edit that column to
-  match the ESP's editor IDs; it is a plain table).
+  must use the same strings the view sends, i.e. the `key` column of
+  `js/worldmap.js` (or edit that column; it is a plain table). The full
+  list: Arroyo, ToxicCaves, Klamath, TheDen, Modoc, GhostFarm, Gecko,
+  VaultCity, Redding, SAD, Stables, NewReno, Golgotha, Raiders, BrokenHills,
+  Navarro, SanFran, MilBase, Vault13, NCR, Vault15.
 * `CreateView("Highwayman/index.html", ...)` means the view folder is
   `Data/PrismaUI/views/Highwayman/`; this folder can simply be renamed.
 * One thing to fix in the plugin as given: `HighwaymanMarkersMap` is keyed

@@ -41,6 +41,9 @@
 
   /* --- Locations ----------------------------------------------------------
    * kind:     town | vault | base | ruin | cave | poi
+   * key:      the plain id the Highwayman plugin is handed when the player
+   *            travels here: PlayerTravelToLocation("Klamath"). Edit freely
+   *            to match whatever names the plugin registers its markers under.
    * marker:   editor id of the Fallout 4 map marker / XMarker this entry maps
    *           to. The Papyrus side resolves it - see papyrus/ and README.
    * services: shown as chips on the destination card
@@ -48,47 +51,47 @@
    */
   var LOCATIONS = [
     { id: "arroyo",   name: "ARROYO",         kind: "town",  region: "arroyo",  p: [133, 96],   danger: 0, start: true,
-      marker: "FO2_MRK_Arroyo",   services: ["HEALER", "TRADE"],            desc: "Your tribe's village. Elder is waiting on the G.E.C.K." },
+      marker: "FO2_MRK_Arroyo", key: "Arroyo",   services: ["HEALER", "TRADE"],            desc: "Your tribe's village. Elder is waiting on the G.E.C.K." },
     { id: "toxic",    name: "TOXIC CAVES",    kind: "cave",  region: "klamath", p: [230, 74],  danger: 3,
-      marker: "FO2_MRK_ToxicCaves", services: ["LOOT"],                     desc: "Sludge-flooded cave system. Something big nests in there." },
+      marker: "FO2_MRK_ToxicCaves", key: "ToxicCaves", services: ["LOOT"],                     desc: "Sludge-flooded cave system. Something big nests in there." },
     { id: "klamath",  name: "KLAMATH",        kind: "town",  region: "klamath", p: [273, 96],  danger: 1,
-      marker: "FO2_MRK_Klamath",  services: ["TRADE", "REPAIR", "BAR"],     desc: "Trapper town. Gecko pelts, bad beer, worse rats." },
+      marker: "FO2_MRK_Klamath", key: "Klamath",  services: ["TRADE", "REPAIR", "BAR"],     desc: "Trapper town. Gecko pelts, bad beer, worse rats." },
     { id: "den",      name: "THE DEN",        kind: "town",  region: "klamath", p: [339, 192], danger: 2,
-      marker: "FO2_MRK_TheDen",   services: ["TRADE", "REPAIR", "CHEM", "GARAGE"], desc: "Slavers and junkies. Smitty's garage sells the Highwayman." },
+      marker: "FO2_MRK_TheDen", key: "TheDen",   services: ["TRADE", "REPAIR", "CHEM", "GARAGE"], desc: "Slavers and junkies. Smitty's garage sells the Highwayman." },
     { id: "modoc",    name: "MODOC",          kind: "town",  region: "modoc",   p: [650, 191], danger: 2,
-      marker: "FO2_MRK_Modoc",    services: ["TRADE", "BAR", "REPAIR"],     desc: "Farm town at the edge of the flats. Brahmin and bad blood." },
+      marker: "FO2_MRK_Modoc", key: "Modoc",    services: ["TRADE", "BAR", "REPAIR"],     desc: "Farm town at the edge of the flats. Brahmin and bad blood." },
     { id: "ghost",    name: "GHOST FARM",     kind: "poi",   region: "modoc",   p: [680, 165],  danger: 2,
-      marker: "FO2_MRK_GhostFarm", services: [],                            desc: "Slag settlement below the fields. Not haunted. Mostly." },
+      marker: "FO2_MRK_GhostFarm", key: "GhostFarm", services: [],                            desc: "Slag settlement below the fields. Not haunted. Mostly." },
     { id: "gecko",    name: "GECKO",          kind: "town",  region: "vc",      p: [889, 160],  danger: 3, rads: true,
-      marker: "FO2_MRK_Gecko",    services: ["TRADE", "REPAIR"],            desc: "Ghoul town around a leaking atomic plant. Rad gear advised." },
+      marker: "FO2_MRK_Gecko", key: "Gecko",    services: ["TRADE", "REPAIR"],            desc: "Ghoul town around a leaking atomic plant. Rad gear advised." },
     { id: "vcity",    name: "VAULT CITY",     kind: "town",  region: "vc",      p: [857, 225], danger: 1,
-      marker: "FO2_MRK_VaultCity", services: ["TRADE", "DOCTOR", "REPAIR"], desc: "Vault 8 grown fat and cruel. Citizenship required." },
+      marker: "FO2_MRK_VaultCity", key: "VaultCity", services: ["TRADE", "DOCTOR", "REPAIR"], desc: "Vault 8 grown fat and cruel. Citizenship required." },
     { id: "redding",  name: "REDDING",        kind: "town",  region: "redding", p: [479, 354], danger: 2,
-      marker: "FO2_MRK_Redding",  services: ["TRADE", "BAR", "DOCTOR"],     desc: "Gold mining town caught between Reno and Vault City." },
+      marker: "FO2_MRK_Redding", key: "Redding",  services: ["TRADE", "BAR", "DOCTOR"],     desc: "Gold mining town caught between Reno and Vault City." },
     { id: "sad",      name: "S.A.D.",         kind: "base",  region: "reno",    p: [647, 539], danger: 4,
-      marker: "FO2_MRK_SAD",      services: [],                             desc: "Sierra Army Depot. Automated defences still online." },
+      marker: "FO2_MRK_SAD", key: "SAD",      services: [],                             desc: "Sierra Army Depot. Automated defences still online." },
     { id: "stables",  name: "STABLES",        kind: "poi",   region: "reno",    p: [659, 573], danger: 3,
-      marker: "FO2_MRK_Stables",  services: [],                             desc: "New Reno's outrider camp. Watch the brahmin." },
+      marker: "FO2_MRK_Stables", key: "Stables",  services: [],                             desc: "New Reno's outrider camp. Watch the brahmin." },
     { id: "reno",     name: "NEW RENO",       kind: "town",  region: "reno",    p: [652, 610], danger: 3,
-      marker: "FO2_MRK_NewReno",  services: ["TRADE", "CHEM", "BAR", "DOCTOR", "GARAGE"], desc: "Four families, no law. Best mechanic on the coast." },
+      marker: "FO2_MRK_NewReno", key: "NewReno",  services: ["TRADE", "CHEM", "BAR", "DOCTOR", "GARAGE"], desc: "Four families, no law. Best mechanic on the coast." },
     { id: "golgotha", name: "GOLGOTHA",       kind: "ruin",  region: "reno",    p: [647, 645], danger: 3,
-      marker: "FO2_MRK_Golgotha", services: [],                             desc: "Reno's boot hill. People get buried here breathing." },
+      marker: "FO2_MRK_Golgotha", key: "Golgotha", services: [],                             desc: "Reno's boot hill. People get buried here breathing." },
     { id: "raiders",  name: "RAIDERS",        kind: "base",  region: "hills",   p: [812, 444], danger: 5,
-      marker: "FO2_MRK_Raiders",  services: [],                             desc: "Fortified raider camp. Bishop pays well for its location." },
+      marker: "FO2_MRK_Raiders", key: "Raiders",  services: [],                             desc: "Fortified raider camp. Bishop pays well for its location." },
     { id: "hills",    name: "BROKEN HILLS",   kind: "town",  region: "hills",   p: [820, 581], danger: 2, rads: true,
-      marker: "FO2_MRK_BrokenHills", services: ["TRADE", "REPAIR", "DOCTOR"], desc: "Uranium town. Humans, ghouls and mutants, uneasily." },
+      marker: "FO2_MRK_BrokenHills", key: "BrokenHills", services: ["TRADE", "REPAIR", "DOCTOR"], desc: "Uranium town. Humans, ghouls and mutants, uneasily." },
     { id: "navarro",  name: "NAVARRO",        kind: "base",  region: "coast",   p: [130, 574],  danger: 5,
-      marker: "FO2_MRK_Navarro",  services: ["REPAIR"],                     desc: "Enclave refuelling base. Vertibirds. Power armour. Leave." },
+      marker: "FO2_MRK_Navarro", key: "Navarro",  services: ["REPAIR"],                     desc: "Enclave refuelling base. Vertibirds. Power armour. Leave." },
     { id: "sfran",    name: "SAN FRANCISCO",  kind: "town",  region: "coast",   p: [339, 871], danger: 2,
-      marker: "FO2_MRK_SanFran",  services: ["TRADE", "DOCTOR", "REPAIR", "GARAGE"], desc: "Shi and the Hubologists. Tanker in the bay." },
+      marker: "FO2_MRK_SanFran", key: "SanFran",  services: ["TRADE", "DOCTOR", "REPAIR", "GARAGE"], desc: "Shi and the Hubologists. Tanker in the bay." },
     { id: "mbase",    name: "MILITARY BASE",  kind: "ruin",  region: "wastes",  p: [483, 937], danger: 4, rads: true,
-      marker: "FO2_MRK_MilBase",  services: [],                             desc: "Mariposa. Glowing, half-collapsed, full of teeth." },
+      marker: "FO2_MRK_MilBase", key: "MilBase",  services: [],                             desc: "Mariposa. Glowing, half-collapsed, full of teeth." },
     { id: "v13",      name: "VAULT 13",       kind: "vault", region: "ncr",     p: [686, 937], danger: 3,
-      marker: "FO2_MRK_Vault13",  services: [],                             desc: "The old home vault. Deathclaws answered the door." },
+      marker: "FO2_MRK_Vault13", key: "Vault13",  services: [],                             desc: "The old home vault. Deathclaws answered the door." },
     { id: "ncr",      name: "N.C.R.",         kind: "town",  region: "ncr",     p: [786, 937], danger: 1,
-      marker: "FO2_MRK_NCR",      services: ["TRADE", "DOCTOR", "REPAIR", "BAR", "GARAGE"], desc: "New California Republic. Actual laws. Actual police." },
+      marker: "FO2_MRK_NCR", key: "NCR",      services: ["TRADE", "DOCTOR", "REPAIR", "BAR", "GARAGE"], desc: "New California Republic. Actual laws. Actual police." },
     { id: "v15",      name: "VAULT 15",       kind: "vault", region: "ncr",     p: [889, 937], danger: 3,
-      marker: "FO2_MRK_Vault15",  services: ["TRADE"],                      desc: "Collapsed vault, squatter town on top. Khans nearby." }
+      marker: "FO2_MRK_Vault15", key: "Vault15",  services: ["TRADE"],                      desc: "Collapsed vault, squatter town on top. Khans nearby." }
   ];
 
   /* --- Roads --------------------------------------------------------------
