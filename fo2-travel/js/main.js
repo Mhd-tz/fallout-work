@@ -2484,10 +2484,12 @@
           if (state.selected) pinAndDrive();
           break;
         case "escape":
-          if (state.inside) leaveLocation(false);
-          else if (state.travel) abortTravel("player");
-          else if (state.selected) clearSelection();
-          else controller.exit();
+          // ESC always closes the map, whatever else is going on: it is the
+          // key players expect to back out of a full-screen menu. Anything
+          // in progress is wound up by exit(). Clearing a plot without
+          // closing is the route panel's CLEAR PLOT; leaving a site is L.
+          e.preventDefault();
+          controller.exit();
           break;
         case "f":
           car.lightsOn = !car.lightsOn;
@@ -2564,7 +2566,13 @@
     refreshList: refreshList,
     recenter: function () { recenter(); },
     exit: function () {
+      // Wind up anything in progress, but leave state.inside alone: closing
+      // the map is exactly what happens after a hand-off, and the lock is
+      // the game's to release (LoadHighwayman / location.exited / L).
       if (state.travel) abortTravel("player exit");
+      clearSelection();
+      state.waypoint = null;
+      keys = {};
       B.uiClose();
       HUD.toast("CLOSING NAVCOM");
     },
