@@ -259,12 +259,41 @@
    * Thin, named wrappers so gameplay code reads clearly and the protocol stays
    * in one place. Each corresponds to a row in README.md's protocol table.
    */
+  /**
+   * Close the view. `requestClose` is the event the plugin binds with
+   * BindUIEvent (PlayerExitMap in Highwayman_Map.cpp); PrismaUI exposes those
+   * as window.<name>(arg), one string argument, so it is called with one.
+   * Every step is logged: the plugin forwards console output to the F4SE log,
+   * so the log says exactly how far the close got.
+   */
   Bridge.uiClose = function () {
     Bridge.send("ui.close", {});
-    if (typeof global.requestClose === "function") {
-      try { global.requestClose(); } catch (e) { console.error(e); }
+    var fn = global.requestClose;
+    if (typeof fn !== "function") {
+      console.error("[FO2Travel] close: window.requestClose is " + (typeof fn) +
+                    " - the plugin has not bound it (BindUIEvent) or bound it " +
+                    "under another name");
+      return false;
+    }
+    try {
+      fn("close");
+      console.log("[FO2Travel] close: requestClose called");
+      return true;
+    } catch (e) {
+      // Some bindings reject an argument; try the bare call before giving up.
+      try {
+        fn();
+        console.log("[FO2Travel] close: requestClose() called with no argument");
+        return true;
+      } catch (e2) {
+        console.error("[FO2Travel] close: requestClose threw", e2);
+        return false;
+      }
     }
   };
+
+  /** Type fo2Close() in the PrismaUI inspector to test the close path. */
+  global.fo2Close = function () { return Bridge.uiClose(); };
 
   /** Player picked a destination but has not committed yet. */
   Bridge.plot = function (loc, est) {
