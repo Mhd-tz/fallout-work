@@ -2480,14 +2480,17 @@
           if (state.inside) leaveLocation(false);
           else enterLocation();
           break;
-        case "p":
+        case "m":
           if (state.selected) pinAndDrive();
           break;
+        case "p":
         case "escape":
-          // ESC always closes the map, whatever else is going on: it is the
-          // key players expect to back out of a full-screen menu. Anything
-          // in progress is wound up by exit(). Clearing a plot without
-          // closing is the route panel's CLEAR PLOT; leaving a site is L.
+          // P closes the map, whatever else is going on. ESC does the same
+          // where the game lets it through, but PrismaUI only forwards ESC
+          // to a view that has claimed it (SetViewOwnsEscape), so P is the
+          // one to rely on. Anything in progress is wound up by exit();
+          // clearing a plot without closing is the route panel's CLEAR
+          // PLOT, and leaving a site is L.
           e.preventDefault();
           controller.exit();
           break;

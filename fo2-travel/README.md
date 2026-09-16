@@ -181,7 +181,7 @@ with `type`, `v` (protocol version) and `t` (timestamp ms).
 | `type` | when | payload |
 |---|---|---|
 | `ui.ready` | view finished booting | `ui`, `version`, `theme`, `view` (the remembered palette and camera) |
-| `ui.close` | player pressed EXIT/ESC | - |
+| `ui.close` | player pressed EXIT / P | - |
 | `travel.plot` | destination selected (not committed) | `destId`, `destName`, `marker`, `x`, `z`, `hours`, `miles`, `fuel`, `risk` |
 | `travel.begin` | player hit AUTO-TRAVEL | as above + `minutes`, `waypoints[]` (≤24 sparse points) |
 | `travel.progress` | throttled during the drive | `x`, `z`, `pct`, `minutes` |
@@ -453,8 +453,8 @@ URL hash flags jump straight to a state:
 
 Controls: **LMB** pan · **RMB** rotate/tilt · **wheel** zoom · **TAB** drive
 mode · **WASD** drive · **SHIFT** boost · **SPACE** brake (or pause in survey)
-· **ENTER** auto-travel · **P** pin & drive · **F** headlights · **R** recenter
-· **0–3** time rate · **C** sand/terminal · **V** terrain/chart · **L** enter the site you are parked at (and leave it again) · **ESC** clear/abort/exit.
+· **ENTER** auto-travel · **M** pin & drive · **F** headlights · **R** recenter
+· **0–3** time rate · **C** sand/terminal · **V** terrain/chart · **L** enter the site you are parked at (and leave it again) · **P** close the map (**ESC** too, where the plugin forwards it).
 
 The time-rate control folds away in manual driving - the clock there follows
 the wheels, not a multiplier - and folds back in on the way out.
@@ -639,7 +639,7 @@ control that changes it (`TAB` still works). The code still calls the map
 mode `survey`; only the label changed, because "survey" meant nothing to a
 player. While a course is running the switch is replaced by an AUTO-TRAVEL
 state, because the mode is not the player's to pick until they abort; CLEAR
-PLOT in the route panel (or `ESC`) becomes ABORT TRAVEL and cancels the drive.
+PLOT in the route panel becomes ABORT TRAVEL and cancels the drive.
 
 **Both side panels fold** to their header bar via the chevron in the header;
 the header keeps its count / range readout so a folded panel still tells you
@@ -657,7 +657,7 @@ miles back. The two radii differ so the prompt cannot flicker at the edge.
 
 Once the game answers `location.entered` the map is **locked inside** that
 site: the car is parked, drive mode, auto-travel and pinning are refused, and
-the prompt turns into LEAVE (`L` / `ESC`). In the game the view closes at
+the prompt turns into LEAVE (`L`). In the game the view closes at
 that point anyway; the lock is what stops the mock, or the seconds before the
 close lands, from letting the car roll off to the next town without its
 driver. The lock lifts on `location.exited`, on any `state.sync` (the game

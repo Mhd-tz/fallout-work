@@ -278,7 +278,7 @@
           : '<button class="act primary" id="actGo"' + ((fuelOk && !enRoute) ? "" : " disabled") +
               '><span class="k">[ENTER]</span> ' +
               (enRoute ? "En Route&hellip;" : "Auto-Travel") + "</button>") +
-        '<button class="act" id="actPin"><span class="k">[P]</span> Pin &amp; Drive Manually</button>' +
+        '<button class="act" id="actPin"><span class="k">[M]</span> Pin &amp; Drive Manually</button>' +
         '<button class="act ghost" id="actClear"><span class="k">[ESC]</span> ' +
           (enRoute ? "Abort Travel" : "Clear Plot") + "</button>" +
       "</div>";
